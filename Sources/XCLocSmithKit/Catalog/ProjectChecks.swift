@@ -263,12 +263,12 @@ public enum ProjectChecks {
         let shipped = Set(counts.filter { $0.value * 2 > started.count }.keys)
         guard !shipped.isEmpty else { return [] }
 
-        var findings: [ProjectFinding] = []
+        var findings: [(missing: Int, finding: ProjectFinding)] = []
         for catalog in started {
             let present = Set(catalog.languages)
             let absent = shipped.subtracting(present).sorted()
             guard !absent.isEmpty else { continue }
-            findings.append(ProjectFinding(
+            findings.append((absent.count, ProjectFinding(
                 rule: .languageCoverageGap,
                 detail: "\(catalog.displayPath) has no \(absent.joined(separator: ", ")), "
                     + "which \(absent.count == 1 ? "is" : "are") in the project's other catalogs — "
@@ -276,8 +276,13 @@ public enum ProjectChecks {
                     + catalog.sourceLanguage,
                 file: catalog.displayPath,
                 isFailure: false
-            ))
+            )))
         }
+        // Widest gap first. GoMap's GPX widget is missing eleven languages and
+        // six of its interface-builder catalogs are missing one each; listing
+        // them by path buries the one that matters under the ones that do not.
         return findings
+            .sorted { $0.missing == $1.missing ? $0.finding.detail < $1.finding.detail : $0.missing > $1.missing }
+            .map(\.finding)
     }
 }
