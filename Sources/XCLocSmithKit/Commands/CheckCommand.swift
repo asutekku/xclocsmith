@@ -282,6 +282,21 @@ public struct CheckCommand {
             )
             : []
 
+        let duplicates = catalog.kind.wantsSimilarKeyCheck
+            ? Consistency.duplicateSources(
+                in: catalog,
+                languages: languages,
+                ignored: workspace.configuration.ignoredSimilarPairs
+            )
+            : []
+
+        let glossaryViolations = Consistency.glossaryViolations(
+            in: catalog,
+            glossary: workspace.configuration.glossary,
+            keys: translatable,
+            languages: languages
+        )
+
         return CatalogReport(
             path: catalog.displayPath,
             table: catalog.kind.displayName,
@@ -294,6 +309,8 @@ public struct CheckCommand {
             coverage: coverage,
             caseDuplicates: SimilarKeys.caseDuplicates(in: catalog),
             similarKeys: similar,
+            duplicateSources: duplicates,
+            glossaryViolations: glossaryViolations,
             pluralGaps: pluralGaps,
             formatMismatches: formatMismatches,
             pluralisedKeys: pluralisedInSource.sorted()

@@ -79,6 +79,10 @@ public enum SimilarKeys {
             for other in (index + 1)..<candidates.count {
                 let b = candidates[other]
                 if b.chars.count > longestComparable { break }   // sorted by length
+                // An exact match is `duplicateSources`' finding, and it reports
+                // it better: one group of n keys rather than n² pairs, with the
+                // languages that render them differently attached.
+                if a.text == b.text { continue }
                 // Skip only when `caseDuplicates` will report the pair anyway.
                 // Two identifier keys whose English differs solely in case are
                 // not case-duplicate *keys*, so nothing else would catch them.

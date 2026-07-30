@@ -122,6 +122,9 @@ public struct Configuration {
     ]
     public var similarityThreshold = 85
     public var scanPreviews = false
+    /// Terms whose translation the project has fixed. Empty by default: a
+    /// glossary is a set of decisions, and this tool has no way to guess them.
+    public var glossary = Glossary()
 
     public init(root: String, configPath: String? = nil) {
         self.root = root
@@ -227,6 +230,36 @@ public struct Configuration {
         }
         if let flag = fields["scanPreviews"]?.boolValue { configuration.scanPreviews = flag }
 
+        if let entry = fields["glossary"] {
+            guard let terms = entry.objectValue else {
+                throw SmithError.invalidConfiguration(
+                    path: path,
+                    reason: "\"glossary\" must be an object of term → { language: rendering }"
+                )
+            }
+            for (term, value) in terms {
+                // Skipping a malformed entry would leave the check silently
+                // doing nothing, which is the one outcome nobody would notice.
+                guard let renderings = value.objectValue, !renderings.isEmpty else {
+                    throw SmithError.invalidConfiguration(
+                        path: path,
+                        reason: "glossary term \"\(term)\" needs at least one language, or \"*\" for all of them"
+                    )
+                }
+                var byLanguage: [String: String] = [:]
+                for (language, rendering) in renderings {
+                    guard let text = rendering.stringValue else {
+                        throw SmithError.invalidConfiguration(
+                            path: path,
+                            reason: "glossary term \"\(term)\" has a non-string rendering for \(language)"
+                        )
+                    }
+                    byLanguage[language] = text
+                }
+                configuration.glossary.terms[term] = byLanguage
+            }
+        }
+
         if let targets = fields["targets"]?.arrayValue {
             configuration.targets = try targets.map { entry in
                 guard let target = entry.objectValue else {
@@ -284,6 +317,11 @@ public struct Configuration {
         fields["excludePaths"] = .array(excludePatterns.map { .string($0) })
         fields["ignoreStrings"] = .array(ignoredStrings.sorted().map { .string($0) })
         fields["ignoreSimilar"] = .array([])
+        // Written empty so it is discoverable: `"Onsen": {"ja": "温泉"}`, or
+        // `{"*": "Furolog"}` for a name that must survive every language.
+        fields["glossary"] = .object(glossary.terms.mapValues { renderings in
+            .object(renderings.mapValues { .string($0) })
+        })
         fields["similarityThreshold"] = .number("\(similarityThreshold)")
         fields["scanPreviews"] = .bool(scanPreviews)
         return JSONWriter.text(.object(fields), style: .plain)

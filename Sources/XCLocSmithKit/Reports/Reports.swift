@@ -90,6 +90,8 @@ public struct CatalogReport: Equatable, Sendable {
     public let coverage: [LanguageCoverage]
     public let caseDuplicates: [CaseDuplicate]
     public let similarKeys: [SimilarPair]
+    public let duplicateSources: [DuplicateSource]
+    public let glossaryViolations: [GlossaryViolation]
     public let pluralGaps: [PluralGap]
     public let formatMismatches: [FormatMismatch]
     /// Keys the source language pluralises, so a template can ask for the
@@ -122,6 +124,33 @@ public struct CatalogReport: Equatable, Sendable {
                 if let text = pair.aText { fields["aText"] = .string(text) }
                 if let text = pair.bText { fields["bText"] = .string(text) }
                 return .object(fields)
+            }),
+            "duplicateSources": .array(duplicateSources.map { duplicate in
+                .object([
+                    "text": .string(duplicate.text),
+                    "keys": .array(duplicate.keys.map { .string($0) }),
+                    "divergences": .array(duplicate.divergences.map { divergence in
+                        .object([
+                            "language": .string(divergence.language),
+                            "renderings": .array(divergence.renderings.map { rendering in
+                                .object([
+                                    "key": .string(rendering.key),
+                                    "value": .string(rendering.value),
+                                ])
+                            }),
+                        ])
+                    }),
+                ])
+            }),
+            "glossaryViolations": .array(glossaryViolations.map { violation in
+                .object([
+                    "key": .string(violation.key),
+                    "language": .string(violation.language),
+                    "term": .string(violation.term),
+                    "expected": .string(violation.expected),
+                    "source": .string(violation.source),
+                    "translation": .string(violation.translation),
+                ])
             }),
             "pluralGaps": .array(pluralGaps.map { gap in
                 .object([
@@ -160,6 +189,9 @@ public struct CheckReport: Report {
             total += catalog.caseDuplicates.filter(\.breaksSymbolGeneration).count
             total += catalog.pluralGaps.count
             total += catalog.formatMismatches.count
+            // A glossary is opt-in, so a violation is a decision the project
+            // wrote down and a translation broke.
+            total += catalog.glossaryViolations.count
         }
         return total
     }
@@ -168,6 +200,11 @@ public struct CheckReport: Report {
         catalogs.reduce(0) { total, catalog in
             total
                 + catalog.similarKeys.count
+                // Advisory, not a failure: "Free" the price and "Free" the
+                // availability are one string with two right answers, and a
+                // project that has shipped for years has hundreds of these.
+                // `--strict` promotes them for anyone who wants the ratchet.
+                + catalog.duplicateSources.count
                 + catalog.caseDuplicates.filter { !$0.breaksSymbolGeneration }.count
                 + catalog.coverage.reduce(0) { $0 + $1.needsReview.count + $1.identicalToSource.count }
                 + catalog.staleKeys.count

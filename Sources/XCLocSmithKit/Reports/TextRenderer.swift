@@ -79,6 +79,20 @@ public struct TextRenderer {
                 }
             }
 
+            if !catalog.glossaryViolations.isEmpty {
+                lines.append("")
+                lines.append("  FAIL  glossary terms not used (\(catalog.glossaryViolations.count)):")
+                for violation in catalog.glossaryViolations.prefix(maximumListLength) {
+                    lines.append(
+                        "    - [\(violation.language)] \"\(escaped(violation.term))\" must render as \"\(escaped(violation.expected))\""
+                    )
+                    lines.append("        \"\(escaped(violation.source))\"  →  \"\(escaped(violation.translation))\"")
+                }
+                if catalog.glossaryViolations.count > maximumListLength {
+                    lines.append("    … and \(catalog.glossaryViolations.count - maximumListLength) more")
+                }
+            }
+
             let breaking = catalog.caseDuplicates.filter(\.breaksSymbolGeneration)
             if !breaking.isEmpty {
                 lines.append("")
@@ -95,6 +109,48 @@ public struct TextRenderer {
                 lines.append("  note  keys differing only by case (\(harmless.count)) — extracted, so symbol generation is unaffected:")
                 for duplicate in harmless.prefix(maximumListLength) {
                     lines.append("    - \(duplicate.keys.map { "\"\(escaped($0))\"" }.joined(separator: " vs "))")
+                }
+            }
+
+            let divergent = catalog.duplicateSources.filter { !$0.divergences.isEmpty }
+            if !divergent.isEmpty {
+                lines.append("")
+                lines.append("  note  one source string translated more than one way (\(divergent.count)):")
+                for duplicate in divergent.prefix(maximumListLength) {
+                    lines.append("    - \"\(escaped(duplicate.text))\"  \(duplicate.keys.joined(separator: ", "))")
+                    for divergence in duplicate.divergences.prefix(4) {
+                        // Keys sharing a rendering are grouped, so a string
+                        // under six keys with two translations reads as two
+                        // choices rather than six lines.
+                        var order: [String] = []
+                        var byValue: [String: [String]] = [:]
+                        for rendering in divergence.renderings {
+                            if byValue[rendering.value] == nil { order.append(rendering.value) }
+                            byValue[rendering.value, default: []].append(rendering.key)
+                        }
+                        let rendered = order.map { value in
+                            "\"\(escaped(value))\" (\(byValue[value, default: []].joined(separator: ", ")))"
+                        }
+                        lines.append("        [\(divergence.language)] \(rendered.joined(separator: "  vs  "))")
+                    }
+                    if duplicate.divergences.count > 4 {
+                        lines.append("        … and \(duplicate.divergences.count - 4) more language(s)")
+                    }
+                }
+                if divergent.count > maximumListLength {
+                    lines.append("    … and \(divergent.count - maximumListLength) more")
+                }
+            }
+
+            let consistent = catalog.duplicateSources.filter { $0.divergences.isEmpty }
+            if !consistent.isEmpty {
+                lines.append("")
+                lines.append("  note  duplicate source strings, translated the same everywhere (\(consistent.count)):")
+                for duplicate in consistent.prefix(maximumListLength) {
+                    lines.append("    - \"\(escaped(duplicate.text))\"  \(duplicate.keys.joined(separator: ", "))")
+                }
+                if consistent.count > maximumListLength {
+                    lines.append("    … and \(consistent.count - maximumListLength) more")
                 }
             }
 
