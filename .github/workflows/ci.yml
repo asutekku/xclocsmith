@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (macOS)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift version
+        run: swift --version
+      - name: Build
+        run: swift build -c release
+      - name: Test
+        run: swift test
+      - name: Self-check on the bundled example project
+        run: |
+          swift run -c release xclocsmith check --config Examples/SampleApp/.xclocsmith.json
+          swift run -c release xclocsmith scan --config Examples/SampleApp/.xclocsmith.json --no-template

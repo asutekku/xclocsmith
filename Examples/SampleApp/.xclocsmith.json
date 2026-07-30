@@ -1,0 +1,18 @@
+{
+  "targets": [
+    {
+      "name": "SampleApp",
+      "sources": [
+        "App"
+      ],
+      "catalogs": [
+        "App/Localizable.xcstrings",
+        "App/Errors.xcstrings",
+        "App/InfoPlist.xcstrings"
+      ]
+    }
+  ],
+  "languages": [
+    "ja"
+  ]
+}
