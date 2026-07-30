@@ -131,6 +131,9 @@ public struct CallSiteAnalyzer {
         let end = probe
         while probe >= 0, code[probe].isLetter || code[probe].isNumber || code[probe] == "_" { probe -= 1 }
         guard end > probe else { return nil }
+        // Only a member access is an assignment to a view's text. `let title =
+        // "…"` is a local constant, and every Swift file is full of those.
+        guard probe >= 0, code[probe] == "." else { return nil }
         return String(code[(probe + 1)...end])
     }
 
@@ -138,11 +141,16 @@ public struct CallSiteAnalyzer {
     /// `tableName: "Errors"` whose bodies are blanked in `code`.
     public var literalsByStart: [Int: SourceLiteral] = [:]
 
+    /// The literal in this argument, or `nil` when there is none — or more than
+    /// one, as in `tableName: flag ? "A" : "B"`, where the table is not
+    /// statically knowable. Dictionary order is not iteration order, so the
+    /// candidates are sorted before choosing.
     private func literalValue(in range: Range<Int>) -> String? {
-        for (start, literal) in literalsByStart where range.contains(start) {
-            return literal.value
-        }
-        return nil
+        let inside = literalsByStart
+            .filter { range.contains($0.key) }
+            .sorted { $0.key < $1.key }
+        guard inside.count == 1 else { return nil }
+        return inside.first?.value.value
     }
 
     private func text(in range: Range<Int>) -> String {

@@ -81,7 +81,7 @@ public struct XclocCheckReport: Report {
 /// passes an integer is now in the app. Xcode's import warns about untranslated
 /// files; it does not compare format specifiers.
 public struct XclocCheckCommand {
-    private var workspace: Workspace
+    private let workspace: Workspace
     private let compareAgainstProject: Bool
 
     public init(workspace: Workspace, compareAgainstProject: Bool = true) {
@@ -89,7 +89,7 @@ public struct XclocCheckCommand {
         self.compareAgainstProject = compareAgainstProject
     }
 
-    public mutating func run(bundlePath: String) throws -> XclocCheckReport {
+    public func run(bundlePath: String) throws -> XclocCheckReport {
         let bundle = try LocalizationCatalog.load(path: bundlePath)
         var report = XclocCheckReport(bundle: bundle.displayName, targetLanguage: bundle.targetLanguage)
 
@@ -217,7 +217,7 @@ public struct XclocApplyCommand {
         }
     }
 
-    private var workspace: Workspace
+    private let workspace: Workspace
     private let options: Options
 
     public init(workspace: Workspace, options: Options) {
@@ -225,7 +225,7 @@ public struct XclocApplyCommand {
         self.options = options
     }
 
-    public mutating func run(bundlePath: String) throws -> [WriteReport] {
+    public func run(bundlePath: String) throws -> [WriteReport] {
         let bundle = try LocalizationCatalog.load(path: bundlePath)
         guard let language = options.language ?? bundle.targetLanguage else {
             throw SmithError.usage("cannot tell which language this bundle is for; pass --lang")
@@ -269,7 +269,7 @@ public struct XclocApplyCommand {
 
                 // A key the project does not have is not invented: an XLIFF is
                 // a translation of a catalog, not a source of new keys.
-                guard entry.catalog.strings[parsed.key] != nil else {
+                guard entry.catalog.contains(parsed.key) else {
                     report.refusals.append(.init(
                         key: parsed.key,
                         reason: "no such key in \(entry.catalog.displayPath); an XLIFF translates a catalog, it does not extend one"
@@ -293,11 +293,21 @@ public struct XclocApplyCommand {
                     }
 
                 case .plural(let category):
-                    entry.catalog.setPluralTranslation(
-                        key: parsed.key, language: language, category: category,
-                        value: value, state: state
-                    )
-                    report.changes.append(.init(key: parsed.key, action: .translated, detail: "plural.\(category)"))
+                    do {
+                        try entry.catalog.setPluralTranslation(
+                            key: parsed.key, language: language, category: category,
+                            value: value, state: state
+                        )
+                        report.changes.append(.init(
+                            key: parsed.key, action: .translated, detail: "plural.\(category)"
+                        ))
+                    } catch let error as SmithError {
+                        guard case .wouldDiscardStructure(_, _, let structure) = error else { throw error }
+                        report.refusals.append(.init(
+                            key: parsed.key,
+                            reason: "holds \(structure); edit it in Xcode"
+                        ))
+                    }
 
                 case .device(let name):
                     entry.catalog.setDeviceTranslation(
@@ -329,7 +339,7 @@ public struct XclocApplyCommand {
             }
 
             if !options.dryRun, !report.changes.isEmpty {
-                try entry.catalog.save()
+                try workspace.save(entry.catalog)
             }
             reports.append(report)
         }

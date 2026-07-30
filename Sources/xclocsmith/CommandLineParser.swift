@@ -53,8 +53,18 @@ struct CommandSpec {
 struct ParsedCommand {
     let spec: CommandSpec
     var positionals: [String] = []
+    /// Positionals given after `--`. These are words — a key, a query — and are
+    /// never re-read as file paths, so a key may be any string at all.
+    var literalPositionals: Set<Int> = []
     var booleans: Set<String> = []
     var values: [String: [String]] = [:]
+
+    /// Positionals that may still be classified by their suffix.
+    var classifiablePositionals: [String] {
+        positionals.enumerated()
+            .filter { !literalPositionals.contains($0.offset) }
+            .map(\.element)
+    }
 
     func isSet(_ flag: Flag) -> Bool { booleans.contains(flag.name) }
     func value(_ flag: Flag) -> String? { values[flag.name]?.last }
@@ -71,6 +81,7 @@ enum CommandLineParser {
             let argument = arguments[index]
 
             if seenSeparator {
+                parsed.literalPositionals.insert(parsed.positionals.count)
                 parsed.positionals.append(argument)
                 index += 1
                 continue

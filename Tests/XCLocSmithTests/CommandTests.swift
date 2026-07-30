@@ -101,7 +101,7 @@ final class CommandTests: XCTestCase {
         ])
 
         let target = Target(name: "App", sources: ["App"], catalogs: ["App/Localizable.xcstrings"])
-        var command = PruneCommand(
+        let command = PruneCommand(
             workspace: Workspace(configuration: configuration(targets: [target])),
             options: .init(dryRun: true)
         )
@@ -125,7 +125,7 @@ final class CommandTests: XCTestCase {
             Target(name: "A", sources: ["A"], catalogs: ["A/Localizable.xcstrings"]),
             Target(name: "B", sources: ["B"], catalogs: ["B/Localizable.xcstrings"]),
         ]
-        var command = PruneCommand(
+        let command = PruneCommand(
             workspace: Workspace(configuration: configuration(targets: targets)),
             options: .init(dryRun: false)
         )
@@ -149,7 +149,7 @@ final class CommandTests: XCTestCase {
             sources: ["App"],
             catalogs: ["App/Localizable.xcstrings", "App/InfoPlist.xcstrings"]
         )
-        var command = PruneCommand(
+        let command = PruneCommand(
             workspace: Workspace(configuration: configuration(targets: [target])),
             options: .init(dryRun: true)
         )
@@ -175,7 +175,7 @@ final class CommandTests: XCTestCase {
             sources: ["App"],
             catalogs: ["App/Localizable.xcstrings", "App/Errors.xcstrings"]
         )
-        var command = ScanCommand(
+        let command = ScanCommand(
             workspace: Workspace(configuration: configuration(targets: [target])),
             options: .init()
         )
@@ -195,7 +195,7 @@ final class CommandTests: XCTestCase {
         try writeCatalog("App/Localizable.xcstrings", keys: ["Untranslated": [:]])
 
         let target = Target(name: "App", sources: ["App"], catalogs: ["App/Localizable.xcstrings"])
-        var command = ScanCommand(
+        let command = ScanCommand(
             workspace: Workspace(configuration: configuration(targets: [target])),
             options: .init()
         )
@@ -215,7 +215,7 @@ final class CommandTests: XCTestCase {
         try writeCatalog("App/Localizable.xcstrings", keys: [:])
 
         let target = Target(name: "App", sources: ["App"], catalogs: ["App/Localizable.xcstrings"])
-        var command = ScanCommand(
+        let command = ScanCommand(
             workspace: Workspace(configuration: configuration(targets: [target])),
             options: .init(writeTemplates: false)
         )
@@ -236,7 +236,7 @@ final class CommandTests: XCTestCase {
             Target(name: "Good", sources: [], catalogs: ["Good/Localizable.xcstrings"]),
             Target(name: "Bad", sources: [], catalogs: ["Bad/Localizable.xcstrings"]),
         ]
-        var command = CheckCommand(
+        let command = CheckCommand(
             workspace: Workspace(configuration: configuration(targets: targets)),
             options: .init()
         )
@@ -251,7 +251,7 @@ final class CommandTests: XCTestCase {
     func testDeclaredLanguageWithNoEntriesIsReported() throws {
         try writeCatalog("App/Localizable.xcstrings", keys: ["K": ["ja": "v"]])
         let target = Target(name: "App", sources: [], catalogs: ["App/Localizable.xcstrings"])
-        var command = CheckCommand(
+        let command = CheckCommand(
             workspace: Workspace(configuration: configuration(targets: [target], languages: ["ja", "de"])),
             options: .init()
         )
@@ -277,7 +277,7 @@ final class CommandTests: XCTestCase {
         try JSONWriter.text(document).write(to: url, atomically: true, encoding: .utf8)
 
         let target = Target(name: "App", sources: [], catalogs: ["App/Localizable.xcstrings"])
-        var command = CheckCommand(
+        let command = CheckCommand(
             workspace: Workspace(configuration: configuration(targets: [target])),
             options: .init()
         )
@@ -293,7 +293,7 @@ final class CommandTests: XCTestCase {
     func testAddRejectsCaseCollisionsWithinOnePayload() throws {
         try writeCatalog("App/Localizable.xcstrings", keys: [:])
         let target = Target(name: "App", sources: [], catalogs: ["App/Localizable.xcstrings"])
-        var command = AddCommand(
+        let command = AddCommand(
             workspace: Workspace(configuration: configuration(targets: [target])),
             options: .init(languages: ["ja"])
         )
@@ -330,7 +330,7 @@ final class CommandTests: XCTestCase {
 
         payload.entries["Save"] = .simple("保存")
         let target = Target(name: "App", sources: [], catalogs: ["App/Localizable.xcstrings"])
-        var command = AddCommand(
+        let command = AddCommand(
             workspace: Workspace(configuration: configuration(targets: [target])),
             options: .init()
         )
@@ -344,7 +344,7 @@ final class CommandTests: XCTestCase {
     func testAddDryRunWritesNothing() throws {
         try writeCatalog("App/Localizable.xcstrings", keys: ["Save": [:]])
         let target = Target(name: "App", sources: [], catalogs: ["App/Localizable.xcstrings"])
-        var command = AddCommand(
+        let command = AddCommand(
             workspace: Workspace(configuration: configuration(targets: [target])),
             options: .init(languages: ["ja"], dryRun: true)
         )
@@ -363,7 +363,7 @@ final class CommandTests: XCTestCase {
         let target = Target(name: "App", sources: [], catalogs: ["App/Localizable.xcstrings"])
         var configuration = self.configuration(targets: [target])
         configuration.languages = []
-        var command = AddCommand(
+        let command = AddCommand(
             workspace: Workspace(configuration: configuration),
             options: .init(languages: ["jp"])
         )
@@ -380,7 +380,7 @@ final class CommandTests: XCTestCase {
     func testSetRefusesToInventKeys() throws {
         try writeCatalog("App/Localizable.xcstrings", keys: ["Goodbye": ["ja": "さようなら"]])
         let target = Target(name: "App", sources: [], catalogs: ["App/Localizable.xcstrings"])
-        var command = SetCommand(
+        let command = SetCommand(
             workspace: Workspace(configuration: configuration(targets: [target])),
             options: .init(languages: ["ja"], createKeys: false)
         )
@@ -396,7 +396,7 @@ final class CommandTests: XCTestCase {
     func testLookupExitsNonZeroWhenNothingMatches() throws {
         try writeCatalog("App/Localizable.xcstrings", keys: ["Save": ["ja": "保存"]])
         let target = Target(name: "App", sources: [], catalogs: ["App/Localizable.xcstrings"])
-        var command = LookupCommand(workspace: Workspace(configuration: configuration(targets: [target])))
+        let command = LookupCommand(workspace: Workspace(configuration: configuration(targets: [target])))
 
         let hit = try command.run(queries: ["Save"], catalogPaths: nil)
         XCTAssertEqual(hit.failures, 0)

@@ -11,7 +11,7 @@ public enum SmithError: Error, CustomStringConvertible, Equatable {
     case invalidPayload(path: String, reason: String)
     case noCatalogs(searchedIn: String)
     case noSources(catalog: String)
-    case unknownLanguage(String, known: [String])
+    case unknownLanguage(String, known: [String], creatable: Bool = false)
     case ambiguousLanguage(candidates: [String])
     case ambiguousCatalog(candidates: [String])
     case wouldDiscardStructure(key: String, language: String, structure: String)
@@ -35,10 +35,13 @@ public enum SmithError: Error, CustomStringConvertible, Equatable {
             return "no .xcstrings catalogs found under \(directory). Run `xclocsmith init` or pass a catalog path."
         case .noSources(let catalog):
             return "no source files found for \(catalog). Check `sources` in your configuration."
-        case .unknownLanguage(let language, let known):
+        case .unknownLanguage(let language, let known, let creatable):
+            let catalogLanguages = known.isEmpty ? "it has none yet" : "has: \(known.joined(separator: ", "))"
             let suggestion = Self.closest(to: language, in: known)
-            let hint = suggestion.map { " Did you mean \"\($0)\"?" } ?? ""
-            return "\"\(language)\" is not a language in this catalog (has: \(known.joined(separator: ", "))).\(hint) Pass --add-language to create it."
+            var message = "\"\(language)\" is not a language in this catalog (\(catalogLanguages))."
+            if let suggestion { message += " Did you mean \"\(suggestion)\"?" }
+            if creatable { message += " Pass --add-language to create it." }
+            return message
         case .ambiguousLanguage(let candidates):
             return "this catalog has several languages (\(candidates.joined(separator: ", "))); name one with --lang"
         case .ambiguousCatalog(let candidates):

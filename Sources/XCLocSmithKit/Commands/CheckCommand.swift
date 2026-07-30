@@ -12,7 +12,7 @@ public struct CheckCommand {
         }
     }
 
-    private var workspace: Workspace
+    private let workspace: Workspace
     private let options: Options
 
     public init(workspace: Workspace, options: Options) {
@@ -20,7 +20,7 @@ public struct CheckCommand {
         self.options = options
     }
 
-    public mutating func run(catalogPaths: [String]? = nil) throws -> CheckReport {
+    public func run(catalogPaths: [String]? = nil) throws -> CheckReport {
         var report = CheckReport()
 
         let catalogs: [Catalog]
@@ -36,23 +36,35 @@ public struct CheckCommand {
         report.diagnostics = workspace.diagnostics
 
         if let templatePath = options.templatePath {
-            let outstanding = report.catalogs.flatMap { catalogReport in
-                catalogReport.coverage
-                    .filter { !$0.isSourceLanguage }
-                    .flatMap { $0.missing + $0.empty }
+            // One template per (catalog, language). Pooling them would attribute
+            // every key to the first catalog and the first language, and `add`
+            // would then create them in the wrong file.
+            struct Bucket: Hashable {
+                let catalog: String
+                let language: String
             }
-            if !outstanding.isEmpty, let first = report.catalogs.first {
-                let language = report.catalogs
-                    .flatMap { $0.coverage }
-                    .first { !$0.isSourceLanguage }?
-                    .language ?? "und"
-                try TranslationPayload.writeTemplate(
-                    keys: Array(Set(outstanding)).sorted(),
-                    catalog: first.path,
-                    language: language,
-                    to: templatePath
+            var buckets: [Bucket: [String]] = [:]
+            for catalogReport in report.catalogs {
+                for coverage in catalogReport.coverage where !coverage.isSourceLanguage {
+                    let outstanding = (coverage.missing + coverage.empty).sorted()
+                    guard !outstanding.isEmpty else { continue }
+                    buckets[Bucket(catalog: catalogReport.path, language: coverage.language)] = outstanding
+                }
+            }
+            for (bucket, keys) in buckets.sorted(by: { "\($0.key)" < "\($1.key)" }) {
+                let path = TemplateNaming.path(
+                    base: templatePath,
+                    catalog: bucket.catalog,
+                    language: bucket.language,
+                    disambiguate: buckets.count > 1
                 )
-                report.templatesWritten.append(templatePath)
+                try TranslationPayload.writeTemplate(
+                    keys: keys,
+                    catalog: bucket.catalog,
+                    language: bucket.language,
+                    to: workspace.configuration.absolute(path)
+                )
+                report.templatesWritten.append(path)
             }
         }
         return report
@@ -104,8 +116,15 @@ public struct CheckCommand {
                 case .empty:
                     if isSource { translated += 1 } else { empty.append(key) }
                 case .unit(let state):
-                    if state.countsAsTranslated { translated += 1 } else { missing.append(key) }
-                    if status.needsReview { needsReview.append(key) }
+                    // In the source language the value is the string itself;
+                    // Xcode writes `new` for extracted-with-value keys and means
+                    // nothing by it.
+                    if isSource || state.countsAsTranslated {
+                        translated += 1
+                    } else {
+                        missing.append(key)
+                    }
+                    if !isSource, status.needsReview { needsReview.append(key) }
                 case .variations(let missingCategories):
                     if missingCategories.isEmpty {
                         translated += 1

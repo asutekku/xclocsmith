@@ -14,7 +14,9 @@ public struct Catalog {
     public let displayPath: String
     public let kind: CatalogKind
 
-    public var strings: [String: JSONValue]
+    /// Read-only from outside: every mutation goes through the guarded methods
+    /// below, so no caller can bypass the checks that keep a catalog valid.
+    public private(set) var strings: [String: JSONValue]
     private var otherFields: [String: JSONValue]
 
     public var sourceLanguage: String { otherFields["sourceLanguage"]?.stringValue ?? "en" }
@@ -80,6 +82,8 @@ public struct Catalog {
     // MARK: - Reading
 
     public var keys: [String] { Array(strings.keys) }
+
+    public func contains(_ key: String) -> Bool { strings[key] != nil }
 
     public func entry(_ key: String) -> [String: JSONValue]? { strings[key]?.objectValue }
 
@@ -332,13 +336,35 @@ public struct Catalog {
 
     /// Writes one plural category, creating the variation structure if needed.
     /// This is the only way to author plurals outside Xcode.
+    ///
+    /// Guarded like `setTranslation`: a localization that carries substitutions
+    /// keeps its plurals *inside* them, so writing a top-level plural would both
+    /// delete the translator's sentence frame and leave a shape Xcode never
+    /// writes. Replacing an existing flat translation is refused for the same
+    /// reason — it is a translation being discarded.
     public mutating func setPluralTranslation(
         key: String,
         language: String,
         category: String,
         value: String,
-        state: TranslationState
-    ) {
+        state: TranslationState,
+        flatten: Bool = false
+    ) throws {
+        if !flatten {
+            let existing = shape(key, language)
+            if existing.hasSubstitutions {
+                throw SmithError.wouldDiscardStructure(
+                    key: key, language: language,
+                    structure: "substitutions (%#@name@ arguments), whose plurals live inside them"
+                )
+            }
+            if existing.hasStringUnit, !(self.value(key, language) ?? "").isEmpty {
+                throw SmithError.wouldDiscardStructure(
+                    key: key, language: language,
+                    structure: "a translation that varying by plural would replace"
+                )
+            }
+        }
         var entry = strings[key]?.objectValue ?? [:]
         var localizations = entry["localizations"]?.objectValue ?? [:]
         var localization = localizations[language]?.objectValue ?? [:]

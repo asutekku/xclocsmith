@@ -5,7 +5,13 @@ import Foundation
 /// Catalogs are loaded once and parse failures are collected rather than
 /// thrown: one corrupt file in a multi-catalog project should not deny you the
 /// report for all the healthy ones.
-public struct Workspace {
+///
+/// A reference type, so a long-lived embedder (an MCP server, say) keeps one
+/// workspace across calls instead of re-parsing the project every time — and so
+/// a write can invalidate what the cache holds. As a value type the caches were
+/// copied into each command and a write-then-read sequence returned the
+/// pre-write catalog. Not thread-safe: use one workspace per unit of work.
+public final class Workspace {
     public let configuration: Configuration
     public private(set) var diagnostics: [DiagnosticError] = []
 
@@ -20,7 +26,7 @@ public struct Workspace {
 
     // MARK: - Catalogs
 
-    public mutating func catalog(at path: String) -> Catalog? {
+    public func catalog(at path: String) -> Catalog? {
         let absolute = configuration.absolute(path)
         if let cached = catalogCache[absolute] { return cached }
         do {
@@ -36,11 +42,11 @@ public struct Workspace {
         }
     }
 
-    public mutating func catalogs(for target: Target) -> [Catalog] {
+    public func catalogs(for target: Target) -> [Catalog] {
         target.catalogs.compactMap { catalog(at: $0) }
     }
 
-    public mutating func allCatalogs() -> [Catalog] {
+    public func allCatalogs() -> [Catalog] {
         var seen = Set<String>()
         var result: [Catalog] = []
         for target in targets {
@@ -52,7 +58,7 @@ public struct Workspace {
     }
 
     /// The catalog a call site reaches, given the table it asked for.
-    public mutating func catalog(for table: String?, in target: Target) -> Catalog? {
+    public func catalog(for table: String?, in target: Target) -> Catalog? {
         let wanted = table ?? "Localizable"
         for catalog in catalogs(for: target) where catalog.kind.tableName == wanted {
             return catalog
@@ -62,7 +68,7 @@ public struct Workspace {
 
     // MARK: - Sources
 
-    public mutating func sources(in directories: [String]) -> [AnalyzedSource] {
+    public func sources(in directories: [String]) -> [AnalyzedSource] {
         let paths = FileCollector.files(in: directories, configuration: configuration, extensions: ["swift"])
         var result: [AnalyzedSource] = []
         for path in paths {
@@ -79,6 +85,20 @@ public struct Workspace {
             }
         }
         return result
+    }
+
+    /// Saves a catalog and refreshes what the cache holds for it, so a later
+    /// read in the same workspace sees the write.
+    public func save(_ catalog: Catalog) throws {
+        try catalog.save()
+        catalogCache[catalog.path] = catalog
+    }
+
+    /// Drops every cached catalog and source. Call after something outside this
+    /// workspace has changed the files.
+    public func invalidate() {
+        catalogCache.removeAll()
+        sourceCache.removeAll()
     }
 
     // MARK: - Languages
@@ -100,7 +120,7 @@ public struct Workspace {
         if !requested.isEmpty {
             if !allowUnknown {
                 for language in requested where !present.contains(language) && !declared.contains(language) {
-                    throw SmithError.unknownLanguage(language, known: present)
+                    throw SmithError.unknownLanguage(language, known: present, creatable: false)
                 }
             }
             return requested
@@ -121,7 +141,7 @@ public struct Workspace {
             }
             let known = Set(catalog.languages).union(configuration.languages)
             if !allowUnknown && !known.contains(language) {
-                throw SmithError.unknownLanguage(language, known: catalog.languages)
+                throw SmithError.unknownLanguage(language, known: catalog.languages, creatable: true)
             }
             return language
         }

@@ -62,6 +62,30 @@ First release.
 - Never invents keys and never guesses at an unrecognised variation; both are
   reported and skipped.
 
+### Fixed before release
+
+Found by an independent audit of this code, each with a regression test:
+
+- `prune` computed orphans per (target, catalog). A catalog shared by two
+  targets — an app and its widget — saw every other target's keys as unused,
+  and deleted live ones while reporting a different set. Orphans are now
+  accumulated per catalog across every target that ships it.
+- A plural payload overwrote a substitutions-based localization without
+  `--flatten`, deleting the translator's sentence frame. `setPluralTranslation`
+  is now guarded like `setTranslation`.
+- Interpolated literals containing a literal `%` never matched their catalog
+  key, because Xcode writes it `%%`. On a real project this was 8 of 14
+  reported failures.
+- `scan --lang <typo>` swallowed the unknown-language error and reported clean.
+- `check --out` pooled every catalog and language into one template, so `add`
+  then created keys in the wrong catalog. Templates are now one per
+  (catalog, language).
+- `let title = "…"` was reported as a UIKit `.title` assignment; an assignment
+  target must now be a member access.
+- `Button("cancel")` was dropped as identifier-shaped. That filter now applies
+  only where the context is weak, never where a localization API is explicit.
+- Multi-line interpolated literals produced no format pattern at all.
+
 ### Interface
 
 - `--json` on every command, rendered from the same report as the text output.

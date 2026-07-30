@@ -1,9 +1,21 @@
 import Foundation
 
 /// What a literal is, once its call context is known.
+/// How sure we are that a literal is user-visible.
+///
+/// `Text("cancel")` is a key whatever it looks like — the API says so. A literal
+/// passed to a project-specific parameter is a weaker signal, so identifier-shaped
+/// values are filtered there and not here.
+public enum KeyConfidence: Equatable, Sendable {
+    /// A documented localization API said so.
+    case strong
+    /// Inferred from a parameter name or a project convention.
+    case weak
+}
+
 public enum LiteralRole: Equatable, Sendable {
     /// A catalog key, in the given table (nil = the target's default table).
-    case key(context: String, table: String?)
+    case key(context: String, table: String?, confidence: KeyConfidence)
     /// User-visible text that will never reach a catalog.
     case bypass(reason: String)
     /// Not user-facing.
@@ -111,27 +123,29 @@ public enum Classifier {
             return .bypass(reason: "Text(verbatim:) opts out of localization")
         }
 
-        // 3
-        if let label = context.label, LocalizableAPI.valueLabels.contains(label) { return .ignored }
+        // 3 — configured skips win over the built-in tables, so a project with
+        // its own non-localizing `Label` type has an escape hatch.
         if let label = context.label, options.skipParams.contains(label) { return .ignored }
+        if let callee = context.callee, options.skipCalls.contains(callee) { return .ignored }
+        if let label = context.label, LocalizableAPI.valueLabels.contains(label) { return .ignored }
 
         // 4
         if let callee = context.callee {
             if let keyLabel = LocalizableAPI.labelledKey[callee], context.label == keyLabel {
-                return .key(context: "\(callee)(\(keyLabel):)", table: context.tableName)
+                return .key(context: "\(callee)(\(keyLabel):)", table: context.tableName, confidence: .strong)
             }
             let isFirstArgument = context.argumentIndex == 0 && context.label == nil
             if isFirstArgument {
                 if !context.isMethod,
                    LocalizableAPI.firstArgumentTypes.contains(callee) || options.localizableCalls.contains(callee) {
-                    return .key(context: callee, table: context.tableName)
+                    return .key(context: callee, table: context.tableName, confidence: .strong)
                 }
                 if context.isMethod,
                    LocalizableAPI.modifiers.contains(callee) || options.localizableModifiers.contains(callee) {
-                    return .key(context: ".\(callee)", table: context.tableName)
+                    return .key(context: ".\(callee)", table: context.tableName, confidence: .strong)
                 }
                 if !context.isMethod, discovered.initializerTypes.contains(callee) {
-                    return .key(context: callee, table: context.tableName)
+                    return .key(context: callee, table: context.tableName, confidence: .weak)
                 }
                 // 5
                 if context.isMethod, LocalizableAPI.uiKitSetters.contains(callee) {
@@ -146,15 +160,10 @@ public enum Classifier {
             return .bypass(reason: ".\(target) = \"…\" needs String(localized:) to localize")
         }
 
-        if let callee = context.callee, options.skipCalls.contains(callee),
-           LocalizableAPI.labelledKey[callee] == nil {
-            return .ignored
-        }
-
         // 6
         if let label = context.label, let owners = discovered.parameterOwners[label], let callee = context.callee {
             if owners.contains(callee) {
-                return .key(context: "\(callee)(\(label):)", table: context.tableName)
+                return .key(context: "\(callee)(\(label):)", table: context.tableName, confidence: .weak)
             }
             // The project declares this parameter elsewhere and this type is not
             // one of them: an internal identifier, not a display string.
@@ -164,7 +173,7 @@ public enum Classifier {
         // 7
         if let label = context.label, options.localizableParams.contains(label) {
             let name = context.callee.map { "\($0)(\(label):)" } ?? "\(label):"
-            return .key(context: name, table: context.tableName)
+            return .key(context: name, table: context.tableName, confidence: .weak)
         }
 
         return .ignored

@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:xclocsmith}",
+            "name": "Debug xclocsmith",
+            "target": "xclocsmith",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug xclocsmith"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:xclocsmith}",
+            "name": "Release xclocsmith",
+            "target": "xclocsmith",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release xclocsmith"
+        }
+    ]
+}

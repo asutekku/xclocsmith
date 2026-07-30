@@ -151,3 +151,22 @@ public struct TranslationPayload {
         }
     }
 }
+
+
+/// Where translation templates are written.
+///
+/// With more than one (catalog, language) pair the name is disambiguated, so a
+/// caller that passes `--out work.json` and reads exactly that path is not left
+/// with a file that silently holds only part of the work.
+public enum TemplateNaming {
+    public static func path(base: String, catalog: String, language: String, disambiguate: Bool) -> String {
+        guard disambiguate else { return base }
+        let slug = catalog
+            .replacingOccurrences(of: ".xcstrings", with: "")
+            .replacingOccurrences(of: "/", with: "-")
+        let dot = base.lastIndex(of: ".")
+        let stem = dot.map { String(base[..<$0]) } ?? base
+        let ext = dot.map { String(base[base.index(after: $0)...]) } ?? "json"
+        return "\(stem)-\(slug)-\(language).\(ext)"
+    }
+}

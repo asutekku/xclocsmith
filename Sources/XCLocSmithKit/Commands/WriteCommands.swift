@@ -27,7 +27,7 @@ public struct AddCommand {
         }
     }
 
-    private var workspace: Workspace
+    private let workspace: Workspace
     private let options: Options
 
     public init(workspace: Workspace, options: Options) {
@@ -35,9 +35,16 @@ public struct AddCommand {
         self.options = options
     }
 
-    public mutating func run(payload: TranslationPayload, catalogPath: String?) throws -> WriteReport {
+    public func run(payload: TranslationPayload, catalogPath: String?) throws -> WriteReport {
         // The payload names its own catalog and language, so a template applied
         // as-is cannot land in the wrong file.
+        if let catalogPath, let declared = payload.catalog,
+           (catalogPath as NSString).lastPathComponent != (declared as NSString).lastPathComponent {
+            throw SmithError.usage(
+                "this payload is for \(declared) but \(catalogPath) was given; "
+                + "remove the argument to use the payload's own catalog"
+            )
+        }
         let path = catalogPath ?? payload.catalog
         guard let path else {
             throw SmithError.usage("no catalog given: pass one, or use a template that names it")
@@ -71,7 +78,7 @@ public struct AddCommand {
                 continue
             }
 
-            let isNew = catalog.strings[key] == nil
+            let isNew = !catalog.contains(key)
             if isNew {
                 guard options.createKeys else {
                     report.refusals.append(.init(key: key, reason: "not in the catalog and --create was not given"))
@@ -100,26 +107,32 @@ public struct AddCommand {
                           catalog: &catalog, report: &report)
 
             case .plural(let forms):
-                for category in forms.keys.sorted() {
-                    guard let value = forms[category], value != TranslationPayload.todoMarker else { continue }
-                    catalog.setPluralTranslation(
+                do {
+                    for category in forms.keys.sorted() {
+                        guard let value = forms[category], value != TranslationPayload.todoMarker else { continue }
+                        try catalog.setPluralTranslation(
+                            key: key,
+                            language: language,
+                            category: category,
+                            value: value,
+                            state: options.state,
+                            flatten: options.flatten
+                        )
+                    }
+                    report.changes.append(.init(
                         key: key,
-                        language: language,
-                        category: category,
-                        value: value,
-                        state: options.state
-                    )
+                        action: .translated,
+                        detail: "plural: \(forms.keys.sorted().joined(separator: ", "))"
+                    ))
+                } catch let error as SmithError {
+                    guard case .wouldDiscardStructure(_, _, let structure) = error else { throw error }
+                    report.refusals.append(.init(key: key, reason: "holds \(structure); pass --flatten to overwrite"))
                 }
-                report.changes.append(.init(
-                    key: key,
-                    action: .translated,
-                    detail: "plural: \(forms.keys.sorted().joined(separator: ", "))"
-                ))
             }
         }
 
         if !options.dryRun, report.changes.contains(where: { $0.action != WriteReport.Action.skipped.rawValue }) {
-            try catalog.save()
+            try workspace.save(catalog)
         }
         return report
     }
@@ -150,7 +163,7 @@ public struct AddCommand {
 
 /// Sets a single translation.
 public struct SetCommand {
-    private var workspace: Workspace
+    private let workspace: Workspace
     private let options: AddCommand.Options
 
     public init(workspace: Workspace, options: AddCommand.Options) {
@@ -158,7 +171,7 @@ public struct SetCommand {
         self.options = options
     }
 
-    public mutating func run(key: String, value: String, catalogPath: String?) throws -> WriteReport {
+    public func run(key: String, value: String, catalogPath: String?) throws -> WriteReport {
         guard let path = catalogPath ?? singleCatalogPath() else {
             throw SmithError.ambiguousCatalog(candidates: workspace.targets.flatMap(\.catalogs))
         }
@@ -174,7 +187,7 @@ public struct SetCommand {
         var report = WriteReport(catalog: catalog.displayPath, language: language)
         report.dryRun = options.dryRun
 
-        if catalog.strings[key] == nil {
+        if !catalog.contains(key) {
             // Creating a key by typo is silent and permanent, so it is opt-in.
             guard options.createKeys else {
                 throw SmithError.keyNotFound(key, catalog: catalog.displayPath)
@@ -197,7 +210,7 @@ public struct SetCommand {
         )
         report.changes.append(.init(key: key, action: existed ? .updated : .translated))
 
-        if !options.dryRun { try catalog.save() }
+        if !options.dryRun { try workspace.save(catalog) }
         return report
     }
 
@@ -226,7 +239,7 @@ public struct PruneCommand {
     /// the configuration, not that the catalog is mostly dead.
     static let refusalRatio = 0.25
 
-    private var workspace: Workspace
+    private let workspace: Workspace
     private let options: Options
 
     public init(workspace: Workspace, options: Options) {
@@ -234,7 +247,7 @@ public struct PruneCommand {
         self.options = options
     }
 
-    public mutating func run() throws -> [WriteReport] {
+    public func run() throws -> [WriteReport] {
         var scan = ScanCommand(
             workspace: workspace,
             options: .init(writeTemplates: false, includeFormatKeysInOrphans: options.includeFormatKeys)
@@ -244,7 +257,12 @@ public struct PruneCommand {
         // Decide everything before writing anything: a partial prune behind an
         // exit code that says "refused" is worse than either outcome alone.
         var planned: [(catalog: Catalog, keys: [String], report: WriteReport)] = []
+        var seenCatalogs = Set<String>()
         for orphan in scanReport.orphans {
+            // Orphans are computed per catalog, but guard against ever planning
+            // the same file twice: two plans would be saved from two copies and
+            // the last write would silently undo the first.
+            guard seenCatalogs.insert(orphan.catalog).inserted else { continue }
             guard var catalog = workspace.catalog(at: orphan.catalog) else { continue }
             var report = WriteReport(catalog: catalog.displayPath)
             report.dryRun = options.dryRun
@@ -259,7 +277,6 @@ public struct PruneCommand {
                 continue
             }
             for key in orphan.keys { report.changes.append(.init(key: key, action: .removed)) }
-            catalog.strings.removeAll { orphan.keys.contains($0) }
             planned.append((catalog, orphan.keys, report))
         }
 
@@ -271,15 +288,11 @@ public struct PruneCommand {
             for entry in planned where !entry.keys.isEmpty {
                 var catalog = entry.catalog
                 for key in entry.keys { catalog.remove(key) }
-                try catalog.save()
+                try workspace.save(catalog)
             }
         }
         return planned.map(\.report)
     }
 }
 
-private extension Dictionary where Key == String, Value == JSONValue {
-    mutating func removeAll(where shouldRemove: (String) -> Bool) {
-        for key in keys where shouldRemove(key) { removeValue(forKey: key) }
-    }
-}
+

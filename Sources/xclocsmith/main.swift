@@ -44,7 +44,13 @@ func translationState(_ parsed: ParsedCommand) throws -> TranslationState {
 }
 
 func catalogArguments(_ parsed: ParsedCommand) -> [String] {
-    parsed.positionals.filter { $0.hasSuffix(".xcstrings") }
+    parsed.classifiablePositionals.filter { $0.hasSuffix(".xcstrings") }
+}
+
+/// Positionals a command reads as words rather than paths.
+func wordArguments(_ parsed: ParsedCommand) -> [String] {
+    let catalogs = Set(catalogArguments(parsed))
+    return parsed.positionals.filter { !catalogs.contains($0) }
 }
 
 func run() -> Int32 {
@@ -102,7 +108,7 @@ func run() -> Int32 {
         switch spec.name {
         case "check":
             let configuration = try makeConfiguration(parsed)
-            var command = CheckCommand(
+            let command = CheckCommand(
                 workspace: Workspace(configuration: configuration),
                 options: .init(
                     languages: CommandLineParser.languages(parsed),
@@ -115,7 +121,7 @@ func run() -> Int32 {
 
         case "scan":
             var configuration = try makeConfiguration(parsed)
-            let directories = parsed.positionals.filter { !$0.hasSuffix(".xcstrings") }
+            let directories = wordArguments(parsed)
             if !directories.isEmpty {
                 configuration.targets = configuration.targets.map {
                     Target(name: $0.name, sources: directories, referenceSources: [], catalogs: $0.catalogs)
@@ -124,7 +130,7 @@ func run() -> Int32 {
             // Writing files is opt-in: a scan that litters the work tree breaks
             // any pipeline with a clean-tree check.
             let wantsTemplate = parsed.isSet(Flags.template) || parsed.value(Flags.out) != nil
-            var command = ScanCommand(
+            let command = ScanCommand(
                 workspace: Workspace(configuration: configuration),
                 options: .init(
                     languages: CommandLineParser.languages(parsed),
@@ -141,7 +147,7 @@ func run() -> Int32 {
             if parsed.isSet(Flags.dryRun) && parsed.isSet(Flags.apply) {
                 throw SmithError.usage("--dry-run and --apply contradict each other")
             }
-            var command = PruneCommand(
+            let command = PruneCommand(
                 workspace: Workspace(configuration: configuration),
                 options: .init(
                     dryRun: !parsed.isSet(Flags.apply),
@@ -149,20 +155,17 @@ func run() -> Int32 {
                     includeFormatKeys: parsed.isSet(Flags.includeFormatKeys)
                 )
             )
-            let reports = try command.run()
+            let report = WriteReports(command: "prune", reports: try command.run())
             if json {
-                print(JSONWriter.text(.object([
-                    "command": .string("prune"),
-                    "catalogs": .array(reports.map(\.jsonValue)),
-                    "failures": .number("\(reports.reduce(0) { $0 + $1.failures })"),
-                ]), style: .plain), terminator: "")
+                print(JSONWriter.text(report.jsonValue, style: .plain), terminator: "")
             } else {
-                print(reports.map(renderer.render).joined(separator: "\n"))
+                print(report.reports.map(renderer.render).joined(separator: "\n"))
                 if !parsed.isSet(Flags.apply) {
                     print("Nothing was written. Re-run with --apply to remove these keys.")
                 }
             }
-            return reports.contains { $0.failures > 0 } ? exitError : exitClean
+            // A refusal means the run needs a decision, not that findings exist.
+            return report.failures > 0 ? exitError : exitClean
 
         case "add":
             let configuration = try makeConfiguration(parsed)
@@ -179,7 +182,7 @@ func run() -> Int32 {
                 data = contents
             }
             let payload = try TranslationPayload.load(from: data, path: payloadPath)
-            var command = AddCommand(
+            let command = AddCommand(
                 workspace: Workspace(configuration: configuration),
                 options: .init(
                     languages: CommandLineParser.languages(parsed),
@@ -194,11 +197,11 @@ func run() -> Int32 {
 
         case "set":
             let configuration = try makeConfiguration(parsed)
-            let words = parsed.positionals.filter { !$0.hasSuffix(".xcstrings") }
+            let words = wordArguments(parsed)
             guard words.count == 2 else {
                 throw SmithError.usage("usage: \(spec.usage)")
             }
-            var command = SetCommand(
+            let command = SetCommand(
                 workspace: Workspace(configuration: configuration),
                 options: .init(
                     languages: CommandLineParser.languages(parsed),
@@ -214,9 +217,9 @@ func run() -> Int32 {
 
         case "lookup":
             let configuration = try makeConfiguration(parsed)
-            let queries = parsed.positionals.filter { !$0.hasSuffix(".xcstrings") }
+            let queries = wordArguments(parsed)
             guard !queries.isEmpty else { throw SmithError.usage("usage: \(spec.usage)") }
-            var command = LookupCommand(
+            let command = LookupCommand(
                 workspace: Workspace(configuration: configuration),
                 languages: CommandLineParser.languages(parsed)
             )
@@ -229,7 +232,7 @@ func run() -> Int32 {
             guard let bundle = parsed.positionals.first else {
                 throw SmithError.usage("usage: \(spec.usage)")
             }
-            var command = XclocCheckCommand(workspace: Workspace(configuration: configuration))
+            let command = XclocCheckCommand(workspace: Workspace(configuration: configuration))
             let report = try command.run(bundlePath: bundle)
             return emit(report, json: json, text: renderer.render(report), strict: strict)
 
@@ -241,27 +244,23 @@ func run() -> Int32 {
             if parsed.isSet(Flags.dryRun) && parsed.isSet(Flags.apply) {
                 throw SmithError.usage("--dry-run and --apply contradict each other")
             }
-            var command = XclocApplyCommand(
+            let command = XclocApplyCommand(
                 workspace: Workspace(configuration: configuration),
                 options: .init(
                     dryRun: !parsed.isSet(Flags.apply),
                     language: CommandLineParser.languages(parsed).first
                 )
             )
-            let reports = try command.run(bundlePath: bundle)
+            let report = WriteReports(command: "xcloc apply", reports: try command.run(bundlePath: bundle))
             if json {
-                print(JSONWriter.text(.object([
-                    "command": .string("xcloc apply"),
-                    "catalogs": .array(reports.map(\.jsonValue)),
-                    "failures": .number("\(reports.reduce(0) { $0 + $1.failures })"),
-                ]), style: .plain), terminator: "")
+                print(JSONWriter.text(report.jsonValue, style: .plain), terminator: "")
             } else {
-                print(reports.map(renderer.render).joined(separator: "\n"))
+                print(report.reports.map(renderer.render).joined(separator: "\n"))
                 if !parsed.isSet(Flags.apply) {
                     print("Nothing was written. Re-run with --apply to import these translations.")
                 }
             }
-            return reports.contains { $0.failures > 0 } ? exitFindings : exitClean
+            return report.failures > 0 ? exitFindings : exitClean
 
         case "init":
             let result = try InitCommand(

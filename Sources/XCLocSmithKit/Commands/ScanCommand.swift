@@ -22,7 +22,7 @@ public struct ScanCommand {
         }
     }
 
-    private var workspace: Workspace
+    private let workspace: Workspace
     private let options: Options
 
     public init(workspace: Workspace, options: Options) {
@@ -30,7 +30,7 @@ public struct ScanCommand {
         self.options = options
     }
 
-    public mutating func run() throws -> ScanReport {
+    public func run() throws -> ScanReport {
         var report = ScanReport()
         let configuration = workspace.configuration
 
@@ -61,6 +61,19 @@ public struct ScanCommand {
                 includePreviews: configuration.scanPreviews,
                 ignoredStrings: configuration.ignoredStrings
             )
+        }
+
+        // Resolved once, before any scanning: a typo in --lang must fail the
+        // run, not silently disable the untranslated check and report clean.
+        var languagesByCatalog: [String: [String]] = [:]
+        for target in workspace.targets {
+            for catalog in workspace.catalogs(for: target) {
+                guard languagesByCatalog[catalog.path] == nil else { continue }
+                languagesByCatalog[catalog.path] = try workspace.languages(
+                    for: catalog,
+                    requested: options.languages
+                )
+            }
         }
 
         var missing: [MissingKeyFinding] = []
@@ -106,7 +119,7 @@ public struct ScanCommand {
                     }
 
                     guard catalog.shouldTranslate(key) else { continue }
-                    let languages = (try? workspace.languages(for: catalog, requested: options.languages)) ?? []
+                    let languages = languagesByCatalog[catalog.path] ?? []
                     for language in languages where language != catalog.sourceLanguage {
                         if !catalog.status(key, language).isComplete {
                             untranslated.append(UntranslatedFinding(
@@ -139,7 +152,7 @@ public struct ScanCommand {
     /// An interpolated literal becomes a format key; match it against the
     /// catalog by pattern since the specifier types are not knowable statically.
     private func resolveKey(_ found: FoundString, in catalog: Catalog) -> String? {
-        if catalog.strings[found.value] != nil { return found.value }
+        if catalog.contains(found.value) { return found.value }
         guard found.isFormatKey, let pattern = found.formatPattern,
               let regex = try? NSRegularExpression(pattern: "^" + pattern + "$") else { return nil }
         for key in catalog.keys where FormatSpecifierScanner.containsSpecifier(key) {
@@ -165,14 +178,25 @@ public struct ScanCommand {
 
     /// Catalog keys nothing references.
     ///
-    /// References are gathered from the target's own sources *and* its
-    /// reference sources, and from non-Swift files, because a false orphan gets
-    /// a live key deleted by `prune`.
-    private mutating func orphans(
+    /// References are accumulated **per catalog**, not per target. A catalog
+    /// listed by two targets — an app and its widget sharing one
+    /// `Localizable.xcstrings` — is referenced by the union of both targets'
+    /// sources. Computing it per target makes every app-only key look orphaned
+    /// from the widget's side, and prune then deletes live keys.
+    ///
+    /// A target's `referenceSources` and non-Swift files count too, because a
+    /// false orphan gets a live key deleted.
+    private func orphans(
         perTarget: [(target: Target, files: [AnalyzedSource])],
         analyzed: [String: SourceScanResult]
     ) -> [OrphanFinding] {
-        var findings: [OrphanFinding] = []
+        struct Accumulator {
+            var catalog: Catalog
+            var referenced = Set<String>()
+            var patterns = Set<String>()
+            var searchRoots: [String] = []
+        }
+        var byCatalog: [String: Accumulator] = [:]
 
         for (target, files) in perTarget {
             var referenced = Set<String>()
@@ -194,44 +218,55 @@ public struct ScanCommand {
                 patterns.formUnion(result.formatPatterns)
             }
 
-            let compiled = patterns.compactMap { try? NSRegularExpression(pattern: "^" + $0 + "$") }
-            let otherFiles = FileCollector.files(
-                in: target.sources + target.referenceSources,
-                configuration: workspace.configuration,
-                extensions: workspace.configuration.referenceExtensions
-            )
-
             for catalog in workspace.catalogs(for: target) {
-                // InfoPlist and AppShortcuts keys are never written in source.
                 guard catalog.kind.isReferencedFromSource else { continue }
+                var accumulator = byCatalog[catalog.path] ?? Accumulator(catalog: catalog)
+                accumulator.referenced.formUnion(referenced)
+                accumulator.patterns.formUnion(patterns)
+                accumulator.searchRoots.append(contentsOf: target.sources + target.referenceSources)
+                byCatalog[catalog.path] = accumulator
+            }
+        }
 
-                var candidates: [String] = []
-                for key in catalog.keys {
-                    guard KeyHeuristics.isTranslatable(key) else { continue }
-                    if catalog.extractionState(key) == .stale { continue }
-                    if referenced.contains(key) { continue }
-                    if FormatSpecifierScanner.containsSpecifier(key) {
-                        guard options.includeFormatKeysInOrphans else { continue }
-                        let range = NSRange(key.startIndex..., in: key)
-                        let matched = compiled.contains { regex in
-                            guard let match = regex.firstMatch(in: key, range: range) else { return false }
-                            return match.range == range
-                        }
-                        if matched { continue }
-                    }
-                    candidates.append(key)
-                }
+        var findings: [OrphanFinding] = []
+        for path in byCatalog.keys.sorted() {
+            guard let accumulator = byCatalog[path] else { continue }
+            let catalog = accumulator.catalog
+            let compiled = accumulator.patterns.compactMap {
+                try? NSRegularExpression(pattern: "^" + $0 + "$")
+            }
 
-                if !candidates.isEmpty {
-                    for path in otherFiles {
-                        guard !candidates.isEmpty else { break }
-                        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
-                        candidates = candidates.filter { !text.contains($0) }
-                    }
+            var candidates: [String] = []
+            for key in catalog.keys {
+                guard KeyHeuristics.isTranslatable(key) else { continue }
+                if catalog.extractionState(key) == .stale { continue }
+                if accumulator.referenced.contains(key) { continue }
+                if FormatSpecifierScanner.containsSpecifier(key) {
+                    guard options.includeFormatKeysInOrphans else { continue }
                 }
-                if !candidates.isEmpty {
-                    findings.append(OrphanFinding(catalog: catalog.displayPath, keys: candidates.sorted()))
+                let range = NSRange(key.startIndex..., in: key)
+                let matched = compiled.contains { regex in
+                    guard let match = regex.firstMatch(in: key, range: range) else { return false }
+                    return match.range == range
                 }
+                if matched { continue }
+                candidates.append(key)
+            }
+
+            if !candidates.isEmpty {
+                let otherFiles = FileCollector.files(
+                    in: Array(Set(accumulator.searchRoots)).sorted(),
+                    configuration: workspace.configuration,
+                    extensions: workspace.configuration.referenceExtensions
+                )
+                for filePath in otherFiles {
+                    guard !candidates.isEmpty else { break }
+                    guard let text = try? String(contentsOfFile: filePath, encoding: .utf8) else { continue }
+                    candidates = candidates.filter { !text.contains($0) }
+                }
+            }
+            if !candidates.isEmpty {
+                findings.append(OrphanFinding(catalog: catalog.displayPath, keys: candidates.sorted()))
             }
         }
         return findings
@@ -257,27 +292,20 @@ public struct ScanCommand {
 
         var written: [String] = []
         for (bucket, keys) in buckets.sorted(by: { "\($0.key)" < "\($1.key)" }) {
-            let path = templatePath(catalog: bucket.catalog, language: bucket.language, multiple: buckets.count > 1)
+            let path = TemplateNaming.path(
+                base: options.templatePath ?? "translations.json",
+                catalog: bucket.catalog,
+                language: bucket.language,
+                disambiguate: buckets.count > 1
+            )
             try TranslationPayload.writeTemplate(
                 keys: keys.sorted(),
                 catalog: bucket.catalog,
                 language: bucket.language,
-                to: path
+                to: workspace.configuration.absolute(path)
             )
             written.append(path)
         }
         return written
-    }
-
-    private func templatePath(catalog: String, language: String, multiple: Bool) -> String {
-        let base = options.templatePath ?? "translations.json"
-        guard multiple else { return base }
-        let slug = catalog
-            .replacingOccurrences(of: ".xcstrings", with: "")
-            .replacingOccurrences(of: "/", with: "-")
-        let dot = base.lastIndex(of: ".")
-        let stem = dot.map { String(base[..<$0]) } ?? base
-        let ext = dot.map { String(base[base.index(after: $0)...]) } ?? "json"
-        return "\(stem)-\(slug)-\(language).\(ext)"
     }
 }

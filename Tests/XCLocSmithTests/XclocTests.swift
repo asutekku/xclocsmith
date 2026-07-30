@@ -128,8 +128,8 @@ final class XclocTests: XCTestCase {
 
     func testCheckFindsTheDefectsThatMatter() throws {
         let bundle = try makeBundle()
-        var workspace = Workspace(configuration: try projectConfiguration())
-        var command = XclocCheckCommand(workspace: workspace)
+        let workspace = Workspace(configuration: try projectConfiguration())
+        let command = XclocCheckCommand(workspace: workspace)
         let report = try command.run(bundlePath: bundle.path)
 
         // %lld in the source, %@ in the translation: a crash, not a typo.
@@ -149,7 +149,7 @@ final class XclocTests: XCTestCase {
 
     func testCheckReportsLanguageMetadataDisagreement() throws {
         let bundle = try makeBundle(targetLocaleInContents: "de")
-        var command = XclocCheckCommand(workspace: Workspace(configuration: try projectConfiguration()))
+        let command = XclocCheckCommand(workspace: Workspace(configuration: try projectConfiguration()))
         let report = try command.run(bundlePath: bundle.path)
         XCTAssertEqual(report.metadataProblems.count, 2)
         XCTAssertGreaterThan(report.failures, 0)
@@ -159,7 +159,7 @@ final class XclocTests: XCTestCase {
 
     func testApplyWritesTranslationsWithoutDestroyingStructure() throws {
         let bundle = try makeBundle()
-        var command = XclocApplyCommand(
+        let command = XclocApplyCommand(
             workspace: Workspace(configuration: try projectConfiguration()),
             options: .init(dryRun: false)
         )
@@ -193,7 +193,7 @@ final class XclocTests: XCTestCase {
     /// the project does not have is a stale or foreign unit, not a new string.
     func testApplyNeverInventsKeys() throws {
         let bundle = try makeBundle()
-        var command = XclocApplyCommand(
+        let command = XclocApplyCommand(
             workspace: Workspace(configuration: try projectConfiguration()),
             options: .init(dryRun: false)
         )
@@ -206,7 +206,7 @@ final class XclocTests: XCTestCase {
 
     func testApplyDryRunWritesNothing() throws {
         let bundle = try makeBundle()
-        var command = XclocApplyCommand(
+        let command = XclocApplyCommand(
             workspace: Workspace(configuration: try projectConfiguration()),
             options: .init(dryRun: true)
         )

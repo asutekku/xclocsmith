@@ -117,7 +117,7 @@ public enum SourceAnalyzer {
                     snippet: String(file.line(literal.line).prefix(90))
                 ))
 
-            case .key(let contextName, let table):
+            case .key(let contextName, let table, let confidence):
                 if context.isConcatenated {
                     result.bypasses.append(BypassWarning(
                         file: file.displayPath,
@@ -145,7 +145,8 @@ public enum SourceAnalyzer {
                 }
 
                 let value = literal.value
-                guard isReportable(value), !ignoredStrings.contains(value) else { continue }
+                guard isReportable(value, confidence: confidence),
+                      !ignoredStrings.contains(value) else { continue }
                 result.strings.append(FoundString(
                     value: value,
                     file: file.displayPath,
@@ -160,13 +161,18 @@ public enum SourceAnalyzer {
         return result
     }
 
-    /// Filters out literals that are not really user-visible text: single
-    /// characters, numbers, and identifier-shaped strings.
-    static func isReportable(_ value: String) -> Bool {
+    /// Filters out literals that are not really user-visible text.
+    ///
+    /// The identifier heuristic — one lowercase word, no spaces — only applies
+    /// when the context is weak. `Button("cancel")` is a catalog key because
+    /// the API says so, and dropping it because it looks like an identifier
+    /// hides exactly what this tool exists to find.
+    static func isReportable(_ value: String, confidence: KeyConfidence = .weak) -> Bool {
         guard value.count > 1 else { return false }
         if Double(value) != nil { return false }
         guard KeyHeuristics.isTranslatable(value) else { return false }
-        if !value.contains(" "), value.first?.isLowercase == true,
+        if confidence == .weak,
+           !value.contains(" "), value.first?.isLowercase == true,
            value.allSatisfy({ $0.isLetter || $0.isNumber }) {
             return false
         }

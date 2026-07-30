@@ -123,6 +123,26 @@ private struct LexContext {
         character.isLetter || character.isNumber || character == "_"
     }
 
+    /// Marks where an interpolation sat while the template is assembled.
+    static let interpolationSentinel: Character = "\u{0}"
+
+    /// Turns the template into a regex matching the catalog keys this literal
+    /// could produce.
+    ///
+    /// A literal `%` is written `%%` by Xcode's extractor — `"Battery at
+    /// \(pct)%"` is stored as `"Battery at %lld%%"` — so the pattern has to
+    /// double it too, or every such string reads as missing from the catalog.
+    static func formatPattern(from template: String) -> String {
+        template
+            .split(separator: interpolationSentinel, omittingEmptySubsequences: false)
+            .map { segment in
+                NSRegularExpression.escapedPattern(
+                    for: segment.replacingOccurrences(of: "%", with: "%%")
+                )
+            }
+            .joined(separator: interpolationPlaceholderPattern)
+    }
+
     mutating func run() {
         let count = chars.count
         while index < count {
@@ -226,7 +246,10 @@ private struct LexContext {
 
         var cursor = start + delimiterLength
         var raw = ""
-        var pattern = ""
+        // The template mirrors `raw` but keeps a sentinel where each
+        // interpolation was, so multi-line indent stripping can be applied to
+        // both before the regex is built.
+        var template = ""
         var hasInterpolation = false
         var closed = false
         var end = count
@@ -251,7 +274,7 @@ private struct LexContext {
                     break
                 }
                 raw.append(character)
-                pattern += NSRegularExpression.escapedPattern(for: String(character))
+                template.append(character)
                 cursor += 1
                 continue
             }
@@ -260,7 +283,7 @@ private struct LexContext {
                 guard isMultiline else { break }   // unterminated single-line literal
                 line += 1
                 raw.append("\n")
-                pattern += "\n"
+                template.append("\n")
                 cursor += 1
                 continue
             }
@@ -271,20 +294,20 @@ private struct LexContext {
 
                 if chars[payload] == "(" {
                     hasInterpolation = true
-                    pattern += interpolationPlaceholderPattern
+                    template.append(Self.interpolationSentinel)
                     cursor = skipInterpolation(from: payload + 1)
                     continue
                 }
 
                 let (decoded, next) = decodeEscape(at: payload)
                 raw += decoded
-                pattern += NSRegularExpression.escapedPattern(for: decoded)
+                template += decoded
                 cursor = next
                 continue
             }
 
             raw.append(character)
-            pattern += NSRegularExpression.escapedPattern(for: String(character))
+            template.append(character)
             cursor += 1
         }
 
@@ -294,8 +317,11 @@ private struct LexContext {
         }
 
         var value = raw
+        var patternTemplate = template
         if isMultiline {
-            value = Self.stripMultilineIndent(raw, closingIndent: closingIndent(before: contentEnd))
+            let indent = closingIndent(before: contentEnd)
+            value = Self.stripMultilineIndent(raw, closingIndent: indent)
+            patternTemplate = Self.stripMultilineIndent(template, closingIndent: indent)
         }
 
         blank((start + delimiterLength)..<max(start + delimiterLength, contentEnd))
@@ -309,7 +335,7 @@ private struct LexContext {
             hasInterpolation: hasInterpolation,
             isMultiline: isMultiline,
             isNested: isNested,
-            formatPattern: hasInterpolation && !isMultiline ? pattern : nil
+            formatPattern: hasInterpolation ? Self.formatPattern(from: patternTemplate) : nil
         ))
 
         return end

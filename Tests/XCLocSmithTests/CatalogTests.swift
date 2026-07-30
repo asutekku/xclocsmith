@@ -60,8 +60,8 @@ final class CatalogTests: XCTestCase {
 
     func testAuthoringPlurals() throws {
         var catalog = try makeCatalog(strings: ["%lld items": .object([:])])
-        catalog.setPluralTranslation(key: "%lld items", language: "ru", category: "one", value: "%lld штука", state: .translated)
-        catalog.setPluralTranslation(key: "%lld items", language: "ru", category: "few", value: "%lld штуки", state: .translated)
+        try catalog.setPluralTranslation(key: "%lld items", language: "ru", category: "one", value: "%lld штука", state: .translated)
+        try catalog.setPluralTranslation(key: "%lld items", language: "ru", category: "few", value: "%lld штуки", state: .translated)
         let status = catalog.status("%lld items", "ru")
         guard case .variations(let missing) = status else { return XCTFail("expected variations") }
         XCTAssertEqual(missing, ["many", "other"])

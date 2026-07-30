@@ -307,6 +307,7 @@ public struct WriteReport: Report {
     public var jsonValue: JSONValue {
         var fields: [String: JSONValue] = [
             "catalog": .string(catalog),
+            "advisories": .number("\(advisories)"),
             "dryRun": .bool(dryRun),
             "changes": .array(changes.map { change in
                 var entry: [String: JSONValue] = [
@@ -380,6 +381,31 @@ public struct LookupReports: Report {
             "command": .string("lookup"),
             "queries": .array(reports.map(\.jsonValue)),
             "found": .bool(reports.contains { !$0.matches.isEmpty }),
+        ])
+    }
+}
+
+
+/// Several catalogs written in one command, so `prune` and `xcloc apply` report
+/// through the same mechanism as everything else instead of hand-rolling JSON.
+public struct WriteReports: Report {
+    public let command: String
+    public let reports: [WriteReport]
+
+    public init(command: String, reports: [WriteReport]) {
+        self.command = command
+        self.reports = reports
+    }
+
+    public var failures: Int { reports.reduce(0) { $0 + $1.failures } }
+    public var advisories: Int { reports.reduce(0) { $0 + $1.advisories } }
+
+    public var jsonValue: JSONValue {
+        .object([
+            "command": .string(command),
+            "catalogs": .array(reports.map(\.jsonValue)),
+            "failures": .number("\(failures)"),
+            "advisories": .number("\(advisories)"),
         ])
     }
 }

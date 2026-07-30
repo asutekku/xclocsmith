@@ -13,10 +13,6 @@ let package = Package(
         .target(name: "XCLocSmithKit"),
         // Argument parsing and process exit only.
         .executableTarget(name: "xclocsmith", dependencies: ["XCLocSmithKit"]),
-        .testTarget(
-            name: "XCLocSmithTests",
-            dependencies: ["XCLocSmithKit"],
-            resources: [.copy("Fixtures")]
-        ),
+        .testTarget(name: "XCLocSmithTests", dependencies: ["XCLocSmithKit"]),
     ]
 )

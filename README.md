@@ -205,7 +205,9 @@ Rules the CLI follows so automation cannot go wrong quietly:
 - `prune` reports by default and only writes with `--apply`.
 - `lookup` exits 1 when nothing matched, so it can gate a script.
 - Exit codes: **0** clean, **1** findings, **2** usage or I/O error. A
-  misconfiguration never masquerades as a finding.
+  misconfiguration never masquerades as a finding — an unknown `--lang` fails
+  the run rather than quietly checking nothing. `prune` also exits 2 when it
+  refuses to act, because a refusal needs a decision, not a fix.
 - `--` ends flag parsing, so a key can be any string: `xclocsmith set -- "--odd key" "値"`.
 
 ## Configuration
@@ -247,9 +249,15 @@ optional; without it the project is discovered. `xclocsmith init` writes one.
 | `ignoreStrings` | Literal values `scan` should never report. |
 | `ignoreSimilar` | Acknowledged near-duplicate pairs. |
 | `localizableCalls`, `localizableModifiers`, `localizableParams` | Extra contexts to treat as user-visible. |
-| `skipCalls`, `skipParams` | Extra contexts to treat as internal. |
+| `skipCalls`, `skipParams` | Contexts to treat as internal. These win over the built-in tables, so a project with its own non-localizing `Label` type can silence it. |
 | `similarityThreshold` | Near-duplicate threshold, 50–99. |
 | `scanPreviews` | Report strings inside `#Preview` bodies (default `false`). |
+
+Classification order, which is the specification rather than an accident of the
+code: a literal nested in an interpolation is a value; `verbatim:` is a bypass;
+your `skipParams`/`skipCalls` win next; then the built-in localization APIs;
+then UIKit assignments; then parameters your project declares, checked against
+the declaring type; then `localizableParams`.
 
 In source, two directives override any of it:
 

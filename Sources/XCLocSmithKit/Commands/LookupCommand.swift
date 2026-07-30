@@ -2,7 +2,7 @@ import Foundation
 
 /// Finds existing keys so a project does not grow three spellings of "Save".
 public struct LookupCommand {
-    private var workspace: Workspace
+    private let workspace: Workspace
     private let languages: [String]
 
     public init(workspace: Workspace, languages: [String] = []) {
@@ -10,7 +10,7 @@ public struct LookupCommand {
         self.languages = languages
     }
 
-    public mutating func run(queries: [String], catalogPaths: [String]?) throws -> LookupReports {
+    public func run(queries: [String], catalogPaths: [String]?) throws -> LookupReports {
         let catalogs: [Catalog]
         if let catalogPaths {
             catalogs = catalogPaths.compactMap { workspace.catalog(at: $0) }
@@ -41,7 +41,7 @@ public struct LookupCommand {
             return result
         }
 
-        if catalog.strings[query] != nil {
+        if catalog.contains(query) {
             return [.init(key: query, catalog: catalog.displayPath, kind: "exact",
                           similarity: 100, translations: translations(query))]
         }
