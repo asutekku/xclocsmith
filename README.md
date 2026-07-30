@@ -30,18 +30,31 @@ with no configuration written by hand. 8,077 keys across 70 distinct locales,
 6,368 Swift files.
 
 | Project | ★ | Catalogs · keys · locales | Broken format strings | Missing plural forms | Duplicate strings | Unlocalized in code | `check` / `scan` |
-|---|---:|---|---|---|---|---|---|
-| [Whisky](https://github.com/Whisky-App/Whisky) | 15.1k | 1 · 152 · 21 | — | — | 8 | **0** | 0.04s / 0.3s |
-| [Loop](https://github.com/MrKai77/Loop) | 11.3k | 1 · 404 · 13 | — | — | 9 + 3 case-only | **0** | 0.08s / 0.9s |
-| [NetNewsWire](https://github.com/Ranchero-Software/NetNewsWire) | 10.2k | 9 · 472 · 1 | — | — | 4 case-only | 85 | 0.01s / 2.7s |
+|---|---:|---|---:|---:|---|---:|---|
+| [Whisky](https://github.com/Whisky-App/Whisky) | 15.1k | 1 · 152 · 21 | 0 | 0 | 8 | 0 | 0.04s / 0.3s |
+| [Loop](https://github.com/MrKai77/Loop) | 11.3k | 1 · 404 · 13 | 0 | 0 | 9 (+3 case) | 0 | 0.08s / 0.9s |
+| [NetNewsWire](https://github.com/Ranchero-Software/NetNewsWire) | 10.2k | 9 · 472 · 1 | 0 | 0 | 0 (+4 case) | 85 | 0.01s / 2.7s |
 | [IceCubesApp](https://github.com/Dimillian/IceCubesApp) | 7.0k | 1 · 733 · 18 | **2** | **33** | 91 | 47 | 0.17s / 1.4s |
 | [Mastodon for iOS](https://github.com/mastodon/mastodon-ios) | 2.3k | 9 · 980 · 53 | **7** | **11** | 139 | 27 | 0.65s / 4.3s |
-| [HSTracker](https://github.com/HearthSim/HSTracker) | 1.2k | 23 · 777 · 13 | — | — | 78 | 10 | 0.09s / 4.9s |
-| [Nimble Commander](https://github.com/mikekazakov/nimble-commander) | 0.7k | 54 · 1322 · 1 | — | — | 323 | **0** | 0.06s / 4.4s |
-| [GoMap](https://github.com/bryceco/GoMap) | 0.4k | 15 · 761 · 33 | **2** | — | 94 | 10 | 0.19s / 2.0s |
-| [DuckDuckGo](https://github.com/duckduckgo/apple-browsers) | 0.2k | 19 · 2476 · 26 | **20** | — | 523 | 166 | 1.7s / 62s |
+| [HSTracker](https://github.com/HearthSim/HSTracker) | 1.2k | 23 · 777 · 13 | 0 | 0 | 78 (+1 case) | 10 | 0.09s / 4.9s |
+| [Nimble Commander](https://github.com/mikekazakov/nimble-commander) | 0.7k | 54 · 1322 · 1 | 0 | 0 | 323 (+2 case) | 0 † | 0.06s / 4.4s |
+| [GoMap](https://github.com/bryceco/GoMap) | 0.4k | 15 · 761 · 33 | **2** | 0 | 94 (+3 case) | 10 | 0.19s / 2.0s |
+| [DuckDuckGo](https://github.com/duckduckgo/apple-browsers) | 0.2k | 19 · 2476 · 26 | **20** | 0 | 523 | 166 | 1.7s / 62s |
 
-Bold columns are the ones that ship as bugs. The rest are advisory.
+**Bold** means it ships as a user-visible bug: a format string that disagrees
+with its source renders garbage or reads past the end of the arguments, and a
+missing plural form renders the wrong sentence for a whole language. The other
+two columns are advisory — worth fixing, not broken. `(+n case)` counts keys
+differing only in case, which are duplicates a translator pays for twice.
+
+Whisky and Loop have no unlocalized strings at all — 213 files and 438
+user-visible strings between them, every one already in a catalog. That column
+is the one a linter is most tempted to pad, so being able to return zero on a
+real app is the point.
+
+† Nimble Commander is Objective-C++ — 54 catalogs, three Swift files. Its zero
+means there was almost nothing for `scan` to read, not that it came back clean;
+`check` is fully meaningful there. See below.
 
 ### Format strings that break at runtime
 
@@ -88,9 +101,11 @@ both already translated into 13.
 `.confirmationDialog("Block User")`. 166 in DuckDuckGo. 27 in Mastodon,
 almost all in one work-in-progress folder.
 
-And **zero** in three of the nine: Whisky, Loop and Nimble Commander come back
-clean, across 216 files and 441 user-visible strings between them. A linter that
-cannot come back clean is not measuring anything.
+And **zero** in Whisky and Loop: 213 files, 438 user-visible strings, all of
+them already in a catalog. Neither app is finding-free — Whisky has 65 missing
+translations, eight duplicate strings and a stale key; Loop has nine duplicates,
+three case-variant keys and one missing German string — but nothing their code
+puts on screen is unlocalized.
 
 ### Where it says no
 
