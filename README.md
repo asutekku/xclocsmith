@@ -155,9 +155,12 @@ silently flatten, when a localization holds plural variations or substitutions:
 
 ```
 FAIL  1 key(s) not written:
-  - Found %#@count@
-  These hold plural variations or substitutions. Edit them in Xcode, or pass --flatten.
+  holds substitutions (%#@name@ arguments); pass --flatten to overwrite:
+    - Found %#@count@
 ```
+
+Refusals carry their reason, because "not in the catalog" and "would destroy
+plural variations" call for different fixes.
 
 Other guarantees:
 
