@@ -2,8 +2,10 @@ import XCTest
 @testable import XCLocSmithKit
 
 /// This table *is* the specification for what counts as a user-visible string.
-/// Every row is Swift that compiles; the expectation is what
-/// `xcstringstool extract` would put in the catalog.
+///
+/// Rows are Swift *fragments*, not compilable files — the lexer only needs the
+/// shape of the call. The expectation is what `xcstringstool extract` would put
+/// in the catalog for that shape.
 final class ClassifierTests: XCTestCase {
 
     private func keys(_ source: String, configuration: Configuration = .test) -> [String] {
