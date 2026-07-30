@@ -35,11 +35,17 @@ public struct LiteralContext: Equatable, Sendable {
     public let isConcatenated: Bool
     /// For `label.text = "Hi"`, the property being assigned.
     public let assignmentTarget: String?
+    /// The member accessed directly on the literal: `"Save".localized` gives
+    /// "localized". Projects define this extension constantly — it is the whole
+    /// localization API in HSTracker (316 call sites) and Nimble Commander —
+    /// and it is invisible to a parser that only looks at enclosing calls.
+    public let trailingMember: String?
 
     static let none = LiteralContext(
         callee: nil, isMethod: false, argumentIndex: nil, label: nil,
         isEntireArgument: false, tableName: nil, tableIsDynamic: false,
-        bundle: nil, isConcatenated: false, assignmentTarget: nil
+        bundle: nil, isConcatenated: false, assignmentTarget: nil,
+        trailingMember: nil
     )
 }
 
@@ -59,7 +65,8 @@ public struct CallSiteAnalyzer {
                 callee: nil, isMethod: false, argumentIndex: nil, label: nil,
                 isEntireArgument: false, tableName: nil, tableIsDynamic: false,
                 bundle: nil, isConcatenated: isConcatenated(literal),
-                assignmentTarget: assignmentTarget(before: literal)
+                assignmentTarget: assignmentTarget(before: literal),
+                trailingMember: trailingMember(after: literal)
             )
         }
 
@@ -112,7 +119,8 @@ public struct CallSiteAnalyzer {
             tableIsDynamic: tableIsDynamic,
             bundle: bundle,
             isConcatenated: isConcatenated(literal),
-            assignmentTarget: assignmentTarget(before: literal)
+            assignmentTarget: assignmentTarget(before: literal),
+            trailingMember: trailingMember(after: literal)
         )
     }
 
@@ -162,6 +170,24 @@ public struct CallSiteAnalyzer {
         let before = argument.range.lowerBound..<min(literal.contextStart, argument.range.upperBound)
         let after = min(literal.end, argument.range.upperBound)..<argument.range.upperBound
         return text(in: before).isEmpty && text(in: after).isEmpty
+    }
+
+    /// For `"Save".localized`, returns `localized`.
+    ///
+    /// Only a member accessed directly on the literal counts: `.localized(with:)`
+    /// is still `localized`, but a newline before the dot would be a chained
+    /// expression on something else.
+    private func trailingMember(after literal: SourceLiteral) -> String? {
+        var probe = literal.end
+        while probe < code.count, code[probe] == " " || code[probe] == "\t" { probe += 1 }
+        guard probe < code.count, code[probe] == "." else { return nil }
+        probe += 1
+        let start = probe
+        while probe < code.count, code[probe].isLetter || code[probe].isNumber || code[probe] == "_" {
+            probe += 1
+        }
+        guard probe > start else { return nil }
+        return String(code[start..<probe])
     }
 
     private func isConcatenated(_ literal: SourceLiteral) -> Bool {

@@ -78,19 +78,23 @@ public struct ClassifierOptions {
     public var localizableModifiers: Set<String>
     public var skipParams: Set<String>
     public var skipCalls: Set<String>
+    /// Members that localize the literal they are accessed on: `"Save".localized`.
+    public var localizedAccessors: Set<String>
 
     public init(
         localizableParams: Set<String>,
         localizableCalls: Set<String>,
         localizableModifiers: Set<String>,
         skipParams: Set<String>,
-        skipCalls: Set<String>
+        skipCalls: Set<String>,
+        localizedAccessors: Set<String> = []
     ) {
         self.localizableParams = localizableParams
         self.localizableCalls = localizableCalls
         self.localizableModifiers = localizableModifiers
         self.skipParams = skipParams
         self.skipCalls = skipCalls
+        self.localizedAccessors = localizedAccessors
     }
 }
 
@@ -102,12 +106,13 @@ public struct ClassifierOptions {
 /// 1. A literal nested in an interpolation is a value, never a key.
 /// 2. `verbatim:` is an explicit opt-out → bypass.
 /// 3. Labels that are never keys (`comment:`, `defaultValue:`, `tableName:`) → ignored.
-/// 4. Known localization APIs, by argument position or label → key.
-/// 5. UIKit text assignments and setters → bypass (a catalog entry does not
+/// 4. A localizing member on the literal (`"Save".localized`) → key.
+/// 5. Known localization APIs, by argument position or label → key.
+/// 6. UIKit text assignments and setters → bypass (a catalog entry does not
 ///    make `label.text = "Hi"` localize; it needs `String(localized:)`).
-/// 6. Project-declared parameters, verified against the declaring type → key.
-/// 7. Configured parameter names → key.
-/// 8. Anything else → ignored.
+/// 7. Project-declared parameters, verified against the declaring type → key.
+/// 8. Configured parameter names → key.
+/// 9. Anything else → ignored.
 public enum Classifier {
     public static func classify(
         literal: SourceLiteral,
@@ -129,7 +134,16 @@ public enum Classifier {
         if let callee = context.callee, options.skipCalls.contains(callee) { return .ignored }
         if let label = context.label, LocalizableAPI.valueLabels.contains(label) { return .ignored }
 
-        // 4
+        // 4 — `"Save".localized`. A project-defined extension is a real
+        // localization API — it is the whole of HSTracker's, at 316 call
+        // sites. It is checked before the bypasses because a member on the
+        // literal settles the question: `label.stringValue = "Quit".localized`
+        // is localized, however unlocalized the assignment looks.
+        if let member = context.trailingMember, options.localizedAccessors.contains(member) {
+            return .key(context: ".\(member)", table: context.tableName, confidence: .strong)
+        }
+
+        // 5
         if let callee = context.callee {
             if let keyLabel = LocalizableAPI.labelledKey[callee], context.label == keyLabel {
                 return .key(context: "\(callee)(\(keyLabel):)", table: context.tableName, confidence: .strong)
@@ -146,6 +160,13 @@ public enum Classifier {
                 }
                 if !context.isMethod, discovered.initializerTypes.contains(callee) {
                     return .key(context: callee, table: context.tableName, confidence: .weak)
+                }
+                // A wrapper the project defines around NSLocalizedString, found
+                // by reading its body. `String.localizedString("Add Card", …)`
+                // is a method call, so the modifier branch above never sees it.
+                if discovered.localizedFunctions.contains(callee) {
+                    let name = context.isMethod ? ".\(callee)" : callee
+                    return .key(context: name, table: context.tableName, confidence: .strong)
                 }
                 // 5
                 if context.isMethod, LocalizableAPI.uiKitSetters.contains(callee) {
@@ -174,12 +195,25 @@ public enum Classifier {
             if discovered.declaredTypes.contains(callee) { return .ignored }
         }
 
-        // 7
+        // 8
         if let label = context.label, options.localizableParams.contains(label) {
+            // `message:` is a real display label on `UIAlertController` and a
+            // log line on `logCloudKitSubActivity(message:)`. Only the name is
+            // available at this point, so the name has to carry it.
+            if let callee = context.callee, isDiagnostic(callee) { return .ignored }
             let name = context.callee.map { "\($0)(\(label):)" } ?? "\(label):"
             return .key(context: name, table: context.tableName, confidence: .weak)
         }
 
         return .ignored
+    }
+
+    /// A function that records something rather than showing it.
+    private static func isDiagnostic(_ callee: String) -> Bool {
+        let lowered = callee.lowercased()
+        return [
+            "log", "trace", "debug", "assert", "crash", "telemetry",
+            "analytics", "metric", "diagnostic", "pixel", "breadcrumb",
+        ].contains { lowered.contains($0) }
     }
 }

@@ -66,6 +66,27 @@ public final class Workspace {
         return nil
     }
 
+    /// Every catalog in the project that serves this table, the target's own
+    /// first.
+    ///
+    /// Used when the target was inferred from the directory layout. GoMap has
+    /// thirteen catalog directories and one source tree; without the build
+    /// settings, every file belongs to every target, so a string present only
+    /// in the app's `Localizable` would be reported missing from the other
+    /// twelve. The table rule still holds — an `Errors` lookup is only ever
+    /// satisfied by an `Errors` catalog.
+    public func catalogs(for table: String?, reachableFrom target: Target) -> [Catalog] {
+        let wanted = table ?? "Localizable"
+        var result = catalogs(for: target).filter { $0.kind.tableName == wanted }
+        guard target.inferred else { return result }
+        var seen = Set(result.map(\.path))
+        for catalog in allCatalogs()
+        where catalog.kind.tableName == wanted && seen.insert(catalog.path).inserted {
+            result.append(catalog)
+        }
+        return result
+    }
+
     // MARK: - Sources
 
     public func sources(in directories: [String]) -> [AnalyzedSource] {

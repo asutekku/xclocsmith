@@ -98,10 +98,18 @@ final class ClassifierTests: XCTestCase {
         XCTAssertEqual(result.bypasses.first?.reason.contains("String(localized:)"), true)
     }
 
-    func testConcatenationIsReportedAsWellAsExtracted() {
+    /// A concatenated fragment is a bypass and nothing else.
+    ///
+    /// `Text("Prefix " + name)` resolves to the `String` overload, so Xcode
+    /// extracts nothing — there is no key to be missing. Reporting one told
+    /// HSTracker's translators to add "Are you sure you want to delete " to the
+    /// catalog, when the fix is to stop building the sentence by concatenation.
+    func testConcatenationIsOnlyABypass() {
         let result = analyze(#"Text("Prefix " + name)"#)
-        XCTAssertEqual(result.strings.map(\.value), ["Prefix "])
+        XCTAssertEqual(result.strings.map(\.value), [])
         XCTAssertEqual(result.bypasses.count, 1)
+        // Still counts as a reference, so the fragment is never called orphaned.
+        XCTAssertTrue(result.referencedValues.contains("Prefix "))
     }
 
     // MARK: - Project conventions

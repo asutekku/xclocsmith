@@ -12,6 +12,9 @@ public struct DiscoveredLocalizables: Equatable, Sendable {
     public var parameterOwners: [String: Set<String>] = [:]
     /// Types whose first unlabelled initializer argument is localized.
     public var initializerTypes: Set<String> = []
+    /// Functions the project defines that localize their first argument, found
+    /// by reading their bodies rather than by matching their names.
+    public var localizedFunctions: Set<String> = []
     /// Every type declared in the scanned sources, so an unknown callee can be
     /// distinguished from one we know does not localize.
     public var declaredTypes: Set<String> = []
@@ -36,9 +39,16 @@ enum LocalizableDiscovery {
         pattern: #"init\(\s*_\s+([a-z_][A-Za-z0-9_]*)\s*:\s*(?:String|LocalizedStringKey)\b"#
     )
 
+    /// `func localizedString(_ key: String, …)` — the first parameter's name is
+    /// captured so the body can be checked for passing it to a real API.
+    private static let functionDeclaration = try! NSRegularExpression(
+        pattern: #"func\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:<[^>]*>)?\s*\(\s*(?:_\s+)?([a-z_][A-Za-z0-9_]*)\s*:\s*(?:String|StaticString)\b"#
+    )
+
     /// Scans the comment-stripped code of every file.
     static func discover(in files: [AnalyzedSource]) -> DiscoveredLocalizables {
         var result = DiscoveredLocalizables()
+        result.localizedFunctions = localizedFunctions(in: files)
 
         for file in files {
             let code = String(file.lexed.code)
@@ -111,6 +121,60 @@ enum LocalizableDiscovery {
             flush()
         }
         return result
+    }
+
+    /// Functions the project defines that localize their first argument.
+    ///
+    /// Every large project in the sample wraps the platform API in one of
+    /// these. HSTracker's is `String.localizedString(_:comment:)` and it is
+    /// used 293 times; without recognising it the scan sees 32 user-visible
+    /// strings in 1,041 files and calls 350 live keys orphaned.
+    ///
+    /// The evidence required is specific: the declared first parameter must be
+    /// passed on to a platform localization API inside the body. A function
+    /// merely *called* `localize` proves nothing.
+    static func localizedFunctions(in files: [AnalyzedSource]) -> Set<String> {
+        var found: Set<String> = []
+
+        for file in files {
+            let lines = splitLines(String(file.lexed.code))
+            for (index, line) in lines.enumerated() {
+                let range = NSRange(line.startIndex..., in: line)
+                guard let match = functionDeclaration.firstMatch(in: line, range: range),
+                      let nameRange = Range(match.range(at: 1), in: line),
+                      let parameterRange = Range(match.range(at: 2), in: line) else { continue }
+                let name = String(line[nameRange])
+                let parameter = String(line[parameterRange])
+                guard !found.contains(name) else { continue }
+
+                // The body, bounded by brace depth from the declaration.
+                var depth = 0
+                var started = false
+                for bodyLine in lines[index...] {
+                    for character in bodyLine {
+                        if character == "{" { depth += 1; started = true }
+                        if character == "}" { depth -= 1 }
+                    }
+                    if passesToLocalizationAPI(parameter, in: bodyLine) {
+                        found.insert(name)
+                        break
+                    }
+                    if started && depth <= 0 { break }
+                }
+            }
+        }
+        return found
+    }
+
+    private static func passesToLocalizationAPI(_ parameter: String, in line: String) -> Bool {
+        let apis = [
+            "NSLocalizedString(", "String(localized:", "LocalizedStringResource(",
+            "LocalizedStringKey(", "localizedString(forKey:", "AttributedString(localized:",
+        ]
+        guard apis.contains(where: { line.contains($0) }) else { return false }
+        // The parameter has to be what is handed over, not just a name in scope.
+        return line.range(of: "\\b\(NSRegularExpression.escapedPattern(for: parameter))\\b",
+                          options: .regularExpression) != nil
     }
 
     /// Property names declared as `LocalizedStringKey` anywhere in the project.

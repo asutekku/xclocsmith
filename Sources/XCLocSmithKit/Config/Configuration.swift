@@ -22,12 +22,26 @@ public struct Target: Equatable, Sendable {
     public var referenceSources: [String]
     /// Catalog paths, keyed by table at resolution time.
     public var catalogs: [String]
+    /// True when this target was guessed from the directory layout rather than
+    /// declared. Without the build settings there is no way to know which
+    /// target compiles a shared file, so a key found in another target's
+    /// catalog for the same table is accepted rather than reported missing.
+    /// A hand-written config means the author does know, and is taken at its
+    /// word.
+    public var inferred: Bool
 
-    public init(name: String, sources: [String], referenceSources: [String] = [], catalogs: [String]) {
+    public init(
+        name: String,
+        sources: [String],
+        referenceSources: [String] = [],
+        catalogs: [String],
+        inferred: Bool = false
+    ) {
         self.name = name
         self.sources = sources
         self.referenceSources = referenceSources
         self.catalogs = catalogs
+        self.inferred = inferred
     }
 }
 
@@ -50,9 +64,24 @@ public struct Configuration {
 
     public var localizableCalls: Set<String> = []
     public var localizableModifiers: Set<String> = []
+    /// Members that localize the literal they are accessed on. The
+    /// `"key".localized` extension is near-universal in projects predating
+    /// String Catalogs, and it is the entire localization API in some.
+    public var localizedAccessors: Set<String> = [
+        "localized", "localizedString", "localizedValue", "loc", "l10n",
+    ]
+    /// Parameter names guessed to be display text when nothing in the project
+    /// says otherwise. This is the weakest rule the classifier has — it fires
+    /// on a name alone — so it holds only names that no common non-UI API uses.
+    ///
+    /// `description:` was removed after the nine-project sample: no AppKit,
+    /// UIKit or SwiftUI localization API takes it, while `XCTestExpectation`,
+    /// `NSError` and `CustomStringConvertible` all do. A project that does
+    /// display a `description:` is still caught by the evidence-based rule,
+    /// which reads the declaring type.
     public var localizableParams: Set<String> = [
         "title", "titleKey", "label", "labelKey", "header", "footer", "prompt",
-        "message", "description", "placeholder", "subtitle", "caption", "hint",
+        "message", "placeholder", "subtitle", "caption", "hint",
     ]
     public var skipParams: Set<String> = [
         "systemImage", "systemName", "imageName", "image", "icon", "iconName",
@@ -70,6 +99,15 @@ public struct Configuration {
         "precondition", "preconditionFailure", "fatalError", "Logger", "os_log",
         "NSLog", "Set", "Array", "Dictionary", "Int", "Double", "Decimal", "Date",
         "XCTAssertEqual", "XCTAssertTrue", "XCTAssertFalse", "XCTFail",
+        // Take a `label:`, `message:` or `title:` that is an identifier, a
+        // compiler directive or a log line. Each was a real false positive in
+        // the sample: `DispatchQueue(label: "net.hearthsim.hstracker.readers")`,
+        // `@available(*, deprecated, message: "…")`, `expectation(description:)`.
+        "DispatchQueue", "OperationQueue", "Thread", "available",
+        "expectation", "XCTestExpectation", "XCTSkip", "XCTUnwrap",
+        "os_signpost", "OSSignposter", "OSLog", "Signposter",
+        "NSSortDescriptor", "SortDescriptor", "NSError", "CodingUserInfoKey",
+        "NSExpression", "NSRegularExpression", "Scanner",
     ]
     /// Non-Swift files searched before a key is called orphaned.
     public var referenceExtensions: Set<String> = [
@@ -90,7 +128,8 @@ public struct Configuration {
             localizableCalls: localizableCalls,
             localizableModifiers: localizableModifiers,
             skipParams: skipParams,
-            skipCalls: skipCalls
+            skipCalls: skipCalls,
+            localizedAccessors: localizedAccessors
         )
     }
 
@@ -196,7 +235,8 @@ public struct Configuration {
                     name: name,
                     sources: target["sources"]?.stringList ?? [],
                     referenceSources: target["referenceSources"]?.stringList ?? [],
-                    catalogs: catalogs
+                    catalogs: catalogs,
+                    inferred: target["inferred"]?.boolValue ?? false
                 )
             }
         } else if let catalogs = fields["catalogs"]?.stringList {
@@ -228,6 +268,10 @@ public struct Configuration {
             if !target.referenceSources.isEmpty {
                 entry["referenceSources"] = .array(target.referenceSources.map { .string($0) })
             }
+            // Written so the guess survives the round-trip. Delete it once the
+            // sources really are this target's, and a key in another target's
+            // catalog stops counting.
+            if target.inferred { entry["inferred"] = .bool(true) }
             return .object(entry)
         })
         fields["languages"] = .array(languages.sorted().map { .string($0) })

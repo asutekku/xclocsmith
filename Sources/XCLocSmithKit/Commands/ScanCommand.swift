@@ -22,6 +22,15 @@ public struct ScanCommand {
         }
     }
 
+    /// Where a found string ended up: in a catalog under some key, absent from
+    /// every catalog that serves its table, or asking for a table the project
+    /// has no catalog for at all.
+    private enum Resolution {
+        case present(Catalog, String)
+        case absent(Catalog)
+        case noSuchTable
+    }
+
     private let workspace: Workspace
     private let options: Options
 
@@ -46,7 +55,12 @@ public struct ScanCommand {
             throw SmithError.noSources(catalog: workspace.targets.first?.catalogs.first ?? "?")
         }
 
-        let orderedFiles = allFiles.values.sorted { $0.path < $1.path }
+        // Test code is dropped before anything else looks at it. Discovery
+        // included: a test helper declaring `title: String` would otherwise
+        // teach the classifier that every `title:` in the project is a key.
+        let allOrdered = allFiles.values.sorted { $0.path < $1.path }
+        let orderedFiles = allOrdered.filter { !$0.isTestCode }
+        report.testFilesSkipped = allOrdered.count - orderedFiles.count
         let discovered = LocalizableDiscovery.discover(in: orderedFiles)
         report.filesScanned = orderedFiles.count
         report.discoveredParameters = discovered.parameterOwners.mapValues { $0.sorted() }
@@ -76,12 +90,29 @@ public struct ScanCommand {
             }
         }
 
+        let stringsIndex = StringsIndex.build(
+            root: configuration.root,
+            configuration: configuration
+        )
+        report.legacyStringsFiles = stringsIndex.fileCount
+
         var missing: [MissingKeyFinding] = []
         var untranslated: [UntranslatedFinding] = []
         var bypasses: [BypassWarning] = []
         var stringCount = 0
+        var regexCache: [String: NSRegularExpression?] = [:]
+        var keyCache: [String: [String]] = [:]
+        // Resolution depends on the target only through its catalog set, so an
+        // inferred target — which reaches every catalog for the table — shares
+        // one entry. Without this, a project whose source tree belongs to ten
+        // inferred targets asked the same question ten times.
+        var resolutionCache: [String: Resolution] = [:]
 
+        // Each file is visited once per target that compiles it, because the
+        // catalogs it may reach differ. Findings are keyed by file and line, so
+        // a file in two targets is reported once, not twice.
         for (target, files) in perTarget {
+            let targetKey = target.inferred ? "*" : target.name
             for file in files {
                 guard let result = analyzed[file.path] else { continue }
                 bypasses.append(contentsOf: result.bypasses)
@@ -89,47 +120,80 @@ public struct ScanCommand {
 
                 for found in result.strings {
                     stringCount += 1
+                    let table = found.table ?? "Localizable"
+                    let cacheKey = "\(targetKey)\u{1}\(table)\u{1}\(found.value)"
 
-                    // Resolve the table the call asked for. A key in Errors.xcstrings
-                    // does not satisfy a lookup in Localizable.xcstrings.
-                    guard let catalog = workspace.catalog(for: found.table, in: target) else {
+                    let resolution: Resolution
+                    if let cached = resolutionCache[cacheKey] {
+                        resolution = cached
+                    } else {
+                        // Resolve the table the call asked for. A key in
+                        // Errors.xcstrings does not satisfy a lookup in
+                        // Localizable.xcstrings.
+                        let reachable = workspace.catalogs(for: found.table, reachableFrom: target)
+                        if reachable.isEmpty {
+                            resolution = .noSuchTable
+                        } else {
+                            var found_: Resolution = .absent(reachable[0])
+                            for candidate in reachable {
+                                if let key = resolveKey(
+                                    found, in: candidate,
+                                    regexCache: &regexCache, keyCache: &keyCache
+                                ) {
+                                    found_ = .present(candidate, key)
+                                    break
+                                }
+                            }
+                            resolution = found_
+                        }
+                        resolutionCache[cacheKey] = resolution
+                    }
+
+                    switch resolution {
+                    case .noSuchTable:
                         missing.append(MissingKeyFinding(
                             value: found.value,
                             file: found.file,
                             line: found.line,
                             context: found.context,
-                            catalog: "\(found.table ?? "Localizable").xcstrings (no such table in \(target.name))",
-                            table: found.table ?? "Localizable",
+                            catalog: "\(table).xcstrings (no such table in \(target.name))",
+                            table: table,
                             isFormatKey: found.isFormatKey
                         ))
-                        continue
-                    }
 
-                    guard let key = resolveKey(found, in: catalog) else {
+                    case .absent(let first):
+                        // A project that keeps some tables in `.strings` is not
+                        // missing those keys; this tool just does not manage
+                        // them. Reporting them would bury the real findings —
+                        // on DuckDuckGo it was 20,323 of 29,932.
+                        guard !stringsIndex.contains(found.value, table: found.table) else {
+                            report.resolvedInLegacyStrings += 1
+                            continue
+                        }
                         missing.append(MissingKeyFinding(
                             value: found.value,
                             file: found.file,
                             line: found.line,
                             context: found.context,
-                            catalog: catalog.displayPath,
-                            table: catalog.kind.displayName,
+                            catalog: first.displayPath,
+                            table: first.kind.displayName,
                             isFormatKey: found.isFormatKey
                         ))
-                        continue
-                    }
 
-                    guard catalog.shouldTranslate(key) else { continue }
-                    let languages = languagesByCatalog[catalog.path] ?? []
-                    for language in languages where language != catalog.sourceLanguage {
-                        if !catalog.status(key, language).isComplete {
-                            untranslated.append(UntranslatedFinding(
-                                value: key,
-                                file: found.file,
-                                line: found.line,
-                                context: found.context,
-                                catalog: catalog.displayPath,
-                                language: language
-                            ))
+                    case .present(let catalog, let key):
+                        guard catalog.shouldTranslate(key) else { continue }
+                        let languages = languagesByCatalog[catalog.path] ?? []
+                        for language in languages where language != catalog.sourceLanguage {
+                            if !catalog.status(key, language).isComplete {
+                                untranslated.append(UntranslatedFinding(
+                                    value: key,
+                                    file: found.file,
+                                    line: found.line,
+                                    context: found.context,
+                                    catalog: catalog.displayPath,
+                                    language: language
+                                ))
+                            }
                         }
                     }
                 }
@@ -139,7 +203,11 @@ public struct ScanCommand {
         report.stringsFound = stringCount
         report.missingKeys = dedupe(missing)
         report.untranslated = dedupeUntranslated(untranslated)
-        report.bypasses = bypasses.sorted { ($0.file, $0.line) < ($1.file, $1.line) }
+        // A file compiled into two targets produces its bypasses twice.
+        var seenBypasses = Set<String>()
+        report.bypasses = bypasses
+            .filter { seenBypasses.insert("\($0.file)\u{1}\($0.line)\u{1}\($0.reason)").inserted }
+            .sorted { ($0.file, $0.line) < ($1.file, $1.line) }
         report.orphans = orphans(perTarget: perTarget, analyzed: analyzed)
         report.diagnostics = workspace.diagnostics
 
@@ -151,11 +219,39 @@ public struct ScanCommand {
 
     /// An interpolated literal becomes a format key; match it against the
     /// catalog by pattern since the specifier types are not knowable statically.
-    private func resolveKey(_ found: FoundString, in catalog: Catalog) -> String? {
+    ///
+    /// The pattern walk is the one quadratic step in `scan` — every interpolated
+    /// string against every specifier-bearing key. Both the compiled regex and
+    /// each catalog's candidate keys are cached, because a large project asks
+    /// the same question thousands of times: DuckDuckGo's 4,673 files took two
+    /// and a half minutes without this, and seconds with it.
+    private func resolveKey(
+        _ found: FoundString,
+        in catalog: Catalog,
+        regexCache: inout [String: NSRegularExpression?],
+        keyCache: inout [String: [String]]
+    ) -> String? {
         if catalog.contains(found.value) { return found.value }
-        guard found.isFormatKey, let pattern = found.formatPattern,
-              let regex = try? NSRegularExpression(pattern: "^" + pattern + "$") else { return nil }
-        for key in catalog.keys where FormatSpecifierScanner.containsSpecifier(key) {
+        guard found.isFormatKey, let pattern = found.formatPattern else { return nil }
+
+        let regex: NSRegularExpression?
+        if let cached = regexCache[pattern] {
+            regex = cached
+        } else {
+            regex = try? NSRegularExpression(pattern: "^" + pattern + "$")
+            regexCache[pattern] = regex
+        }
+        guard let regex else { return nil }
+
+        let candidates: [String]
+        if let cached = keyCache[catalog.path] {
+            candidates = cached
+        } else {
+            candidates = catalog.keys.filter { FormatSpecifierScanner.containsSpecifier($0) }
+            keyCache[catalog.path] = candidates
+        }
+
+        for key in candidates {
             let range = NSRange(key.startIndex..., in: key)
             if let match = regex.firstMatch(in: key, range: range), match.range == range { return key }
         }
@@ -195,8 +291,12 @@ public struct ScanCommand {
             var referenced = Set<String>()
             var patterns = Set<String>()
             var searchRoots: [String] = []
+            var searchedSwift: [AnalyzedSource] = []
         }
         var byCatalog: [String: Accumulator] = [:]
+        var globalReferenced = Set<String>()
+        var globalPatterns = Set<String>()
+        var globalSwift: [AnalyzedSource] = []
 
         for (target, files) in perTarget {
             var referenced = Set<String>()
@@ -224,7 +324,27 @@ public struct ScanCommand {
                 accumulator.referenced.formUnion(referenced)
                 accumulator.patterns.formUnion(patterns)
                 accumulator.searchRoots.append(contentsOf: target.sources + target.referenceSources)
+                if accumulator.searchedSwift.isEmpty { accumulator.searchedSwift = files }
                 byCatalog[catalog.path] = accumulator
+            }
+            if target.inferred {
+                globalReferenced.formUnion(referenced)
+                globalPatterns.formUnion(patterns)
+                globalSwift.append(contentsOf: files)
+            }
+        }
+
+        // A guessed target owns a catalog directory, not a compilation unit.
+        // HSTracker keeps its catalogs under `Translations/` and its code
+        // elsewhere, so evidence gathered from the code never reached them and
+        // 350 live keys were offered for deletion. Pool it.
+        if workspace.targets.allSatisfy(\.inferred) {
+            for path in byCatalog.keys {
+                byCatalog[path]?.referenced.formUnion(globalReferenced)
+                byCatalog[path]?.patterns.formUnion(globalPatterns)
+                if byCatalog[path]?.searchedSwift.isEmpty == true {
+                    byCatalog[path]?.searchedSwift = globalSwift
+                }
             }
         }
 
@@ -239,6 +359,7 @@ public struct ScanCommand {
             var candidates: [String] = []
             for key in catalog.keys {
                 guard KeyHeuristics.isTranslatable(key) else { continue }
+                guard !KeyHeuristics.isInterfaceBuilderKey(key) else { continue }
                 if catalog.extractionState(key) == .stale { continue }
                 if accumulator.referenced.contains(key) { continue }
                 if FormatSpecifierScanner.containsSpecifier(key) {
@@ -259,10 +380,32 @@ public struct ScanCommand {
                     configuration: workspace.configuration,
                     extensions: workspace.configuration.referenceExtensions
                 )
+                // `String.contains` goes through Foundation's canonical,
+                // locale-aware search, which is grapheme-by-grapheme. Looking
+                // for a few hundred keys in a project's XIBs and plists that
+                // way dominated the whole command — four minutes of GoMap's
+                // four and a half. A literal byte search asks the same
+                // question: is this exact key mentioned anywhere.
                 for filePath in otherFiles {
                     guard !candidates.isEmpty else { break }
                     guard let text = try? String(contentsOfFile: filePath, encoding: .utf8) else { continue }
-                    candidates = candidates.filter { !text.contains($0) }
+                    let haystack = Array(text.utf8)
+                    candidates = candidates.filter { !containsBytes(of: $0, in: haystack) }
+                }
+            }
+
+            // Last check: the Swift text itself. Deleting a key is
+            // irreversible, so a key mentioned anywhere in the code is kept
+            // even when the classifier could not attribute it — a
+            // `["save", "cancel"].map(localize)` table, a `#if os(macOS)`
+            // branch, an idiom this tool has never seen. Being wrong here
+            // costs a translator's work; being conservative costs one line of
+            // advisory output.
+            if !candidates.isEmpty {
+                for file in accumulator.searchedSwift {
+                    guard !candidates.isEmpty else { break }
+                    let haystack = Array(file.text.utf8)
+                    candidates = candidates.filter { !containsBytes(of: $0, in: haystack) }
                 }
             }
             if !candidates.isEmpty {
@@ -270,6 +413,22 @@ public struct ScanCommand {
             }
         }
         return findings
+    }
+
+    /// Literal substring search over UTF-8, skipping ahead on the first byte.
+    private func containsBytes(of needle: String, in haystack: [UInt8]) -> Bool {
+        let pattern = Array(needle.utf8)
+        guard let first = pattern.first, pattern.count <= haystack.count else {
+            return pattern.isEmpty
+        }
+        let last = haystack.count - pattern.count
+        var start = 0
+        while start <= last {
+            guard let offset = haystack[start...last].firstIndex(of: first) else { return false }
+            if Array(haystack[offset..<(offset + pattern.count)]) == pattern { return true }
+            start = offset + 1
+        }
+        return false
     }
 
     private func writeTemplates(for report: ScanReport) throws -> [String] {

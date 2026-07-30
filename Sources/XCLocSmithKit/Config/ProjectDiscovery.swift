@@ -70,10 +70,17 @@ public enum ProjectDiscovery {
 
         // Group catalogs by the directory they live in: several tables in one
         // directory belong to the same target.
+        //
+        // `.lproj` is a resource folder, not a target boundary — GoMap keeps
+        // eleven catalogs in `mul.lproj` directories beside the code they
+        // belong to, and treating each as its own target invented eleven
+        // targets that all compiled the same sources.
         var byDirectory: [String: [String]] = [:]
         for catalog in catalogs {
-            let directory = URL(fileURLWithPath: catalog).deletingLastPathComponent().path
-            byDirectory[directory, default: []].append(catalog)
+            var components = catalog.split(separator: "/").map(String.init)
+            components.removeLast()
+            while let last = components.last, last.hasSuffix(".lproj") { components.removeLast() }
+            byDirectory[components.joined(separator: "/"), default: []].append(catalog)
         }
 
         // The top-level directory a catalog belongs to, e.g. "App" for "App/Resources/…".
@@ -88,23 +95,46 @@ public enum ProjectDiscovery {
             return [Target(
                 name: owner(of: group[0]) ?? "default",
                 sources: sourceDirectories.isEmpty ? ["."] : sourceDirectories,
-                catalogs: group.sorted()
+                catalogs: group.sorted(),
+                inferred: true
+            )]
+        }
+
+        // Directories that would all compile the same sources are not separate
+        // targets — they are one target with several catalogs. GoMap keeps
+        // thirteen catalog directories under a single `src` tree; splitting it
+        // made every string missing from twelve catalogs it never had to be in.
+        let resolvedSources = byDirectory.keys.map { directory -> [String] in
+            let group = byDirectory[directory] ?? []
+            if let ownerName = owner(of: group.sorted()[0]), sourceDirectories.contains(ownerName) {
+                return [ownerName]
+            }
+            return [directory.isEmpty ? "." : directory]
+        }
+        if Set(resolvedSources.map { $0.joined(separator: "\u{1}") }).count == 1 {
+            return [Target(
+                name: resolvedSources[0][0],
+                sources: resolvedSources[0],
+                referenceSources: shared,
+                catalogs: catalogs.sorted(),
+                inferred: true
             )]
         }
 
         // Two catalog directories under one top-level folder would otherwise
         // both be named after it. Duplicate target names make the config
-        // ambiguous — `--target` could not address either of them.
+        // ambiguous — `--target` could not address either of them. Names stay
+        // repo-relative: an absolute path is neither readable nor portable.
         var used = Set<String>()
         return byDirectory.keys.sorted().map { directory in
             let group = (byDirectory[directory] ?? []).sorted()
             let ownerName = owner(of: group[0])
             var sources: [String] = []
             if let ownerName, sourceDirectories.contains(ownerName) { sources.append(ownerName) }
-            if sources.isEmpty { sources = [directory] }
-            var name = ownerName ?? directory
+            if sources.isEmpty { sources = [directory.isEmpty ? "." : directory] }
+            var name = ownerName ?? (directory.isEmpty ? "default" : directory)
             if !used.insert(name).inserted {
-                name = directory
+                name = directory.isEmpty ? "default" : directory
                 var suffix = 2
                 while !used.insert(name).inserted {
                     name = "\(directory) (\(suffix))"
@@ -115,7 +145,8 @@ public enum ProjectDiscovery {
                 name: name,
                 sources: sources,
                 referenceSources: shared,
-                catalogs: group
+                catalogs: group,
+                inferred: true
             )
         }
     }

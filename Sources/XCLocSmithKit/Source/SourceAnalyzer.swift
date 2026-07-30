@@ -26,6 +26,28 @@ public struct AnalyzedSource {
         guard number >= 1, number <= lines.count else { return "" }
         return lines[number - 1].trimmingCharacters(in: .whitespaces)
     }
+
+    /// Test code, which is never localized.
+    ///
+    /// The import is the reliable signal — a file that imports XCTest or
+    /// Swift Testing is a test whatever it is called. Path heuristics catch the
+    /// fixtures and builders beside it, which import neither but exist only to
+    /// serve them: DuckDuckGo's `makeTab(title:)` and `makeBookmark(title:)`
+    /// accounted for 6,140 findings on their own.
+    public var isTestCode: Bool {
+        let code = lexed.code
+        if code.contains("import XCTest") || code.contains("@testable import") { return true }
+        if code.contains("import Testing"), code.contains("@Test") { return true }
+
+        let components = displayPath.split(separator: "/").map(String.init)
+        guard let name = components.last else { return false }
+        if name.hasSuffix("Tests.swift") || name.hasSuffix("Test.swift")
+            || name.hasSuffix("Spec.swift") || name.hasSuffix("TestCase.swift") { return true }
+        return components.dropLast().contains { directory in
+            directory.hasSuffix("Tests") || directory.hasSuffix("TestSupport")
+                || directory == "Tests" || directory == "TestUtilities"
+        }
+    }
 }
 
 /// One user-visible string found in source.
@@ -125,6 +147,12 @@ public enum SourceAnalyzer {
                         reason: "string concatenation defeats catalog lookup",
                         snippet: String(file.line(literal.line).prefix(90))
                     ))
+                    // A fragment is not a key and never will be. Reporting it
+                    // as missing too tells a translator to add "Are you sure
+                    // you want to delete " to the catalog, when the fix is to
+                    // stop building the sentence by concatenation.
+                    result.referencedValues.insert(literal.value)
+                    continue
                 }
 
                 if literal.hasInterpolation {
@@ -189,6 +217,22 @@ public enum SourceAnalyzer {
 }
 
 public enum KeyHeuristics {
+    /// A key Xcode generated from a XIB or storyboard: an object identifier
+    /// and the property it sets, `3aJ-8X-AqP.title`.
+    ///
+    /// These can never be referenced from code — the identifier only exists
+    /// inside the nib — so they are exempt from the orphan check for the same
+    /// reason `InfoPlist.xcstrings` is. HSTracker keeps 23 such catalogs and
+    /// they accounted for every one of its 515 reported orphans.
+    public static func isInterfaceBuilderKey(_ key: String) -> Bool {
+        guard let dot = key.firstIndex(of: "."), key.index(after: dot) < key.endIndex else { return false }
+        let identifier = key[key.startIndex..<dot].split(separator: "-", omittingEmptySubsequences: false)
+        guard identifier.count == 3 else { return false }
+        let lengths = identifier.map(\.count)
+        guard lengths == [3, 2, 3] else { return false }
+        return identifier.allSatisfy { part in part.allSatisfy { $0.isLetter || $0.isNumber } }
+    }
+
     /// True when a key contains text a translator could act on. `"%@"`,
     /// `"%lld/%lld"`, `"—"` and `"12"` do not.
     public static func isTranslatable(_ key: String) -> Bool {

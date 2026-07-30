@@ -193,6 +193,17 @@ public struct TextRenderer {
 
         lines.append(contentsOf: renderDiagnostics(report.diagnostics))
         lines.append("Scanned \(report.filesScanned) Swift file(s), \(report.stringsFound) user-visible string(s).")
+        if report.testFilesSkipped > 0 {
+            lines.append("Skipped \(report.testFilesSkipped) test file(s); test strings are not localized.")
+        }
+        // Saying so matters: these strings *are* localized, just not by
+        // anything this tool audits, and a silent pass would read as coverage.
+        if report.resolvedInLegacyStrings > 0 {
+            lines.append(
+                "\(report.resolvedInLegacyStrings) string(s) resolve to legacy .strings files "
+                    + "(\(report.legacyStringsFiles) found) and are not checked."
+            )
+        }
         for path in report.templatesWritten {
             lines.append("Wrote \(path) — fill in each \"TODO\", then: xclocsmith add \(path)")
         }

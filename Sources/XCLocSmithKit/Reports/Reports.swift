@@ -250,6 +250,11 @@ public struct ScanReport: Report {
     public var discoveredParameters: [String: [String]] = [:]
     /// Set when a call computes its table name, so attribution is incomplete.
     public var hasDynamicTables = false
+    /// Strings that resolve to a legacy `.strings` file rather than a catalog:
+    /// localized, but not by anything this tool audits.
+    public var resolvedInLegacyStrings = 0
+    public var legacyStringsFiles = 0
+    public var testFilesSkipped = 0
 
     public var failures: Int { missingKeys.count + untranslated.count + diagnostics.count }
     public var advisories: Int { bypasses.count + orphans.reduce(0) { $0 + $1.keys.count } }
@@ -259,6 +264,9 @@ public struct ScanReport: Report {
             "command": .string("scan"),
             "filesScanned": .number("\(filesScanned)"),
             "stringsFound": .number("\(stringsFound)"),
+            "resolvedInLegacyStrings": .number("\(resolvedInLegacyStrings)"),
+            "legacyStringsFiles": .number("\(legacyStringsFiles)"),
+            "testFilesSkipped": .number("\(testFilesSkipped)"),
             "missingKeys": .array(missingKeys.map(\.jsonValue)),
             "untranslated": .array(untranslated.map(\.jsonValue)),
             "bypasses": .array(bypasses.map { bypass in

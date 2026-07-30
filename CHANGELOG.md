@@ -148,7 +148,63 @@ test built from the catalog that exposed it.
 - A value flag swallowed a following flag as its value, so `scan --out --json`
   wrote a file named `--json`.
 
+### Fixed after running against nine shipping projects
+
+IceCubesApp, Mastodon for iOS, NetNewsWire, Whisky, Loop, HSTracker, GoMap,
+Nimble Commander and DuckDuckGo — 8,077 keys, 70 locales, 6,368 Swift files.
+The theme is reading each project's own conventions instead of assuming Apple's.
+
+**Recall — strings the scan could not see at all.** These are the dangerous
+ones: the output looked clean.
+
+- Project-defined localization functions are now found by reading their bodies.
+  A function whose first parameter reaches `NSLocalizedString`,
+  `String(localized:)` or `LocalizedStringResource` localizes; one merely named
+  `localize` does not. HSTracker localizes entirely through
+  `String.localizedString(_:comment:)` at 293 call sites — the scan saw 32
+  user-visible strings in 1,041 files, and now sees 2,104.
+- `"Save".localized` — a member accessed on the literal — is a localization API.
+  It is checked before the bypass rules, so
+  `label.stringValue = "Quit".localized` is localized, not a bypass.
+
+**Precision — findings that were never real.**
+
+- Every source file was checked against every inferred target's catalogs, so a
+  string present in one was reported missing from all the others. GoMap went
+  from 4,401 unlocalized strings to 10. Discovery also no longer invents a
+  target per catalog directory when they all compile the same sources, and
+  `.lproj` is treated as a resource folder rather than a target boundary.
+- Keys still kept in `.strings` are localized, just not by this tool; they are
+  counted and named rather than reported missing. On DuckDuckGo that was 20,323
+  of 29,932 findings.
+- Test code is not scanned. DuckDuckGo's `expectation(description:)` and its
+  fixture builders were 6,140 findings on their own.
+- `description:` left the default parameter-name list — no AppKit, UIKit or
+  SwiftUI API localizes it, while `XCTestExpectation` and `NSError` use it.
+- `DispatchQueue(label:)`, `@available(message:)` and other identifier-shaped
+  arguments are skipped, as is `message:` on a call whose name says it logs.
+- A concatenated fragment is a bypass and nothing else. It has no catalog key to
+  be missing, and asking a translator to add `"Are you sure you want to delete "`
+  is worse than useless.
+
+**Orphans — keys offered for deletion that were live.**
+
+- Interface Builder keys (`3aJ-8X-AqP.title`) name an object inside a nib and
+  can never appear in code, so they are exempt like `InfoPlist.xcstrings`.
+- Evidence is pooled across inferred targets: HSTracker keeps its catalogs under
+  `Translations/` and its code elsewhere, so nothing the code proved ever
+  reached them. 515 keys were offered for deletion; now 92.
+- A key mentioned anywhere in the Swift text survives, even where the classifier
+  could not attribute it. Being wrong here costs a translator's work.
+
+**Performance.** `scan` on GoMap went from 4m 23s to 2.0s, and on DuckDuckGo's
+4,673 files from 2m 30s to 50s. The orphan check searched with Foundation's
+canonical, locale-aware `String.contains`, which is grapheme-by-grapheme; it now
+uses a literal byte search. Format-key resolution caches its compiled patterns
+and each catalog's candidate keys.
+
 ### Tests
 
-133, including a CLI layer suite covering flag grammar, exit codes, `--json`
-shape, and the guarantee that reading commands leave the tree byte-identical.
+143, including a CLI suite covering flag grammar, exit codes, `--json` shape and
+byte-identical trees after reading commands, and a recall suite built from the
+call sites the sample projects exposed.
