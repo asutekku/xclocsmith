@@ -46,13 +46,16 @@ enum Flags {
     static let includeFormatKeys = Flag.bool("--include-format-keys", "Consider keys containing %@ / %lld when reporting orphans.")
     static let threshold = Flag.value("--threshold", "Near-duplicate threshold, 50–99 (default 85).")
     static let files = Flag.value("--files", "Report only these source files; repeatable or comma-separated.")
+    // Takes the path rather than defaulting to it. `--baseline` bare would have
+    // to guess whether the next argument is its value or a positional, and
+    // `check --baseline App/Localizable.xcstrings` is a real thing to type.
     static let baseline = Flag.value(
         "--baseline",
-        "Accept the findings recorded in this file (default \(Baseline.fileName))."
+        "Accept the findings recorded in this file."
     )
     static let updateBaseline = Flag.bool(
         "--update-baseline",
-        "Record every current finding as accepted, and write the file."
+        "Record every current finding as accepted; writes \(Baseline.fileName) unless --baseline names another path."
     )
 }
 

@@ -327,23 +327,30 @@ extension XclocCheckReport {
                 )
             }
         }
-        return flatten(formatMismatches, rule: "format-mismatch", level: .error)
-            + flatten(pluralGaps, rule: "plural-incomplete", level: .error)
-            + flatten(unknownKeys, rule: "unknown-key", level: .warning)
-            + flatten(unsupportedUnits, rule: "unsupported-unit", level: .warning)
-            + flatten(untranslated, rule: "untranslated-string", level: .warning)
-            + flatten(machineTranslated, rule: "machine-translated", level: .warning)
-            + metadataProblems.map {
-                Finding(rule: "bundle-metadata", level: .error, message: $0, file: bundle)
-            }
-            + missingFromBundle.map {
-                Finding(
-                    rule: "missing-from-bundle",
-                    level: .warning,
-                    message: "\"\($0)\" is in the catalog but not in this bundle.",
-                    file: bundle
-                )
-            }
+        // Appended rather than joined with `+`. Every term here is a `[Finding]`,
+        // but `+` is generic over Array, ArraySlice and every other
+        // RangeReplaceableCollection, so an eight-term chain gives the type
+        // checker a combinatorial search and it gives up — on a CI runner,
+        // where it has less time, before it does on a developer's machine.
+        var findings: [Finding] = []
+        findings += flatten(formatMismatches, rule: "format-mismatch", level: .error)
+        findings += flatten(pluralGaps, rule: "plural-incomplete", level: .error)
+        findings += flatten(unknownKeys, rule: "unknown-key", level: .warning)
+        findings += flatten(unsupportedUnits, rule: "unsupported-unit", level: .warning)
+        findings += flatten(untranslated, rule: "untranslated-string", level: .warning)
+        findings += flatten(machineTranslated, rule: "machine-translated", level: .warning)
+        findings += metadataProblems.map {
+            Finding(rule: "bundle-metadata", level: .error, message: $0, file: bundle)
+        }
+        findings += missingFromBundle.map {
+            Finding(
+                rule: "missing-from-bundle",
+                level: .warning,
+                message: "\"\($0)\" is in the catalog but not in this bundle.",
+                file: bundle
+            )
+        }
+        return findings
     }
 }
 

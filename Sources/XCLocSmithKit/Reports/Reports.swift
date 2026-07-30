@@ -219,19 +219,27 @@ public struct CheckReport: Report {
     }
 
     public var advisories: Int {
-        project.filter { !$0.isFailure }.count + catalogs.reduce(0) { total, catalog in
-            total
-                + catalog.similarKeys.count
-                // Advisory, not a failure: "Free" the price and "Free" the
-                // availability are one string with two right answers, and a
-                // project that has shipped for years has hundreds of these.
-                // `--strict` promotes them for anyone who wants the ratchet.
-                + catalog.duplicateSources.count
-                + catalog.caseDuplicates.filter { !$0.breaksSymbolGeneration }.count
-                + catalog.hygiene.filter { !$0.isFailure }.count
-                + catalog.coverage.reduce(0) { $0 + $1.needsReview.count + $1.identicalToSource.count }
-                + catalog.staleKeys.count
+        // Accumulated the way `failures` above is, and for the same reason a
+        // chain of `+` had to be broken up in `Finding.swift`: a long numeric
+        // chain inside a closure whose type has to be inferred is what the
+        // Swift type checker gives up on first, and it has less time to spend
+        // on a CI runner than on a developer's machine.
+        var total = project.filter { !$0.isFailure }.count
+        for catalog in catalogs {
+            total += catalog.similarKeys.count
+            // Advisory, not a failure: "Free" the price and "Free" the
+            // availability are one string with two right answers, and a
+            // project that has shipped for years has hundreds of these.
+            // `--strict` promotes them for anyone who wants the ratchet.
+            total += catalog.duplicateSources.count
+            total += catalog.caseDuplicates.filter { !$0.breaksSymbolGeneration }.count
+            total += catalog.hygiene.filter { !$0.isFailure }.count
+            for coverage in catalog.coverage {
+                total += coverage.needsReview.count + coverage.identicalToSource.count
+            }
+            total += catalog.staleKeys.count
         }
+        return total
     }
 
     public var jsonValue: JSONValue {

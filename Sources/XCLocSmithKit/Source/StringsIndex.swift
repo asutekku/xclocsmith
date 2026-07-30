@@ -84,7 +84,7 @@ public struct StringsIndex: Sendable {
 enum StringsFile {
     static func keys(in text: String) -> Set<String> {
         var keys: Set<String> = []
-        var scalars = Array(text.unicodeScalars)
+        let scalars = Array(text.unicodeScalars)
         var index = 0
 
         func skipTrivia() {
