@@ -215,8 +215,27 @@ and each catalog's candidate keys.
   language that requires more than one form. It used to count as 100% complete,
   which is exactly what happens when a model is handed a bare `"TODO"`.
 
+### Fixed after an independent audit of this code
+
+- **Format specifiers were never compared inside plural variations.** The walk
+  that collects comparable values descended into the `stringUnit` object rather
+  than stopping at the category holding it, so nothing under `variations` was
+  ever collected. A German `other` form that had dropped its `%lld` reported
+  clean — and a plural is the likeliest place in a catalog for a lost count.
+  Fixing it found four more real bugs in the corpus, including GoMap's Arabic
+  translator having pasted the *description* of a string into two of its plural
+  forms.
+- A category standing for one known count is exempt from that comparison.
+  English "%lld new post" is German "ein neuer Beitrag" and Arabic
+  "بقي تكرار واحد"; comparing those was 60 of the first 62 findings the fix
+  produced.
+- **Templates carry the source string and the developer's comment.** They used
+  to carry the key and `"TODO"` and nothing else, so on a project keyed by
+  identifier the flagship workflow asked for a translation of a string the
+  translator had never seen. Both fields are read-only and `add` ignores them.
+
 ### Tests
 
-147, including a CLI suite covering flag grammar, exit codes, `--json` shape and
+150, including a CLI suite covering flag grammar, exit codes, `--json` shape and
 byte-identical trees after reading commands, and a recall suite built from the
 call sites and templates the sample projects exposed.

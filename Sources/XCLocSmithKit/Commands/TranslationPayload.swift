@@ -152,19 +152,35 @@ public struct TranslationPayload {
         catalog: String,
         language: String,
         pluralKeys: Set<String> = [],
+        sources: [String: String] = [:],
+        comments: [String: String] = [:],
         to path: String
     ) throws {
         var strings: [String: JSONValue] = [:]
         for key in keys {
-            guard pluralKeys.contains(key) else {
+            // `source` is read-only context, and `add` ignores it. It is
+            // emitted only when the key is not itself the English string: a
+            // project keyed by identifier writes `notifications.label.favorite
+            // %lld`, and without its value — "starred" — the template asks for
+            // a translation of a string the translator has never seen.
+            var entry: [String: JSONValue] = [:]
+            if let source = sources[key], source != key { entry["source"] = .string(source) }
+            if let comment = comments[key], !comment.isEmpty { entry["comment"] = .string(comment) }
+
+            if pluralKeys.contains(key) {
+                var categories: [String: JSONValue] = [:]
+                for category in PluralRules.categories(for: language).required {
+                    categories[category] = .string(todoMarker)
+                }
+                entry["plural"] = .object(categories)
+            } else if entry.isEmpty {
+                // Nothing to say about it: the short form stays short.
                 strings[key] = .string(todoMarker)
                 continue
+            } else {
+                entry["value"] = .string(todoMarker)
             }
-            var categories: [String: JSONValue] = [:]
-            for category in PluralRules.categories(for: language).required {
-                categories[category] = .string(todoMarker)
-            }
-            strings[key] = .object(["plural": .object(categories)])
+            strings[key] = .object(entry)
         }
         let document = JSONValue.object([
             "format": .string(formatIdentifier),

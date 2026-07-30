@@ -57,11 +57,23 @@ should have to know that Russian takes four plural forms and Japanese one:
   "strings": {
     "Delete %@": "TODO",
     "%lld items": {
+      "source": "%lld items",
       "plural": { "one": "TODO", "few": "TODO", "many": "TODO", "other": "TODO" }
+    },
+    "notifications.label.favorite": {
+      "source": "starred",
+      "comment": "Tab label under the icon",
+      "value": "TODO"
     }
   }
 }
 ```
+
+`source` and `comment` are read-only context and `add` ignores them. They matter
+most on a project that keys by identifier: `notifications.label.favorite` says
+nothing about the string, and without the English beside it you are asking for a
+translation of something nobody can see. Keys that are already their own English
+string stay in the short `"key": "TODO"` form.
 
 And the verify step catches what models actually get wrong:
 
@@ -85,14 +97,16 @@ agent hands back — including flagging units marked as machine-translated.
 - **Translate with a model and check its work.** A template of exactly what is
   missing, shaped for the target language's plural rules, and a verify step that
   rejects a dropped `%@` or a Russian plural answered with one string.
-- **Coverage per language, per catalog**, with the missing keys listed — not a
-  percentage you have to go hunting behind.
-- **Catches what Xcode cannot.** Format specifiers that disagree with their
-  source string, plural categories CLDR requires, translations identical to the
-  English, keys that differ only in case.
-- **Reads your Swift, not your line endings.** A real tokenizer, so escapes,
-  raw strings, multi-line literals, interpolation and a `)` inside a block
-  comment inside an interpolation all parse correctly.
+- **Coverage per language, per catalog.** `ja: 120/123` — and the three
+  missing keys named underneath, so nobody has to open Xcode to find out which
+  ones.
+- **Catches what no build step checks.** Format specifiers that disagree with
+  their source string, plural categories CLDR requires, translations identical
+  to the English, keys that differ only in case. Xcode's editor will show you
+  some of this if you go looking; nothing fails a build over it.
+- **A real Swift tokenizer.** Escapes, raw strings, multi-line literals,
+  interpolation, and a `)` inside a block comment inside an interpolation —
+  the cases where a regex-based scanner quietly gives up.
 - **Learns your project's conventions.** `"Save".localized` and
   `String.localizedString("Add Card", comment: "")` are localization APIs if
   your project defines them — found by reading the function body, not by
@@ -102,9 +116,10 @@ agent hands back — including flagging units marked as machine-translated.
   substitutions unless you ask.
 - **Imports `.xcloc` bundles safely**, comparing format specifiers first —
   something `xcodebuild -importLocalizations` does not do.
-- **Built for automation.** `--json` on every command, meaningful exit codes,
-  and an MCP server whose read and write tools are separately permissioned.
-- **No dependencies.** `swift build` is the whole install.
+- **Built for automation.** `--json` on every command that reports findings,
+  meaningful exit codes, and an MCP server whose read and write tools are
+  separately permissioned.
+- No dependencies. `swift build` is the whole install.
 
 ## Results on real projects
 
@@ -117,17 +132,25 @@ Nine open-source apps, `init && check && scan` with no hand-written config —
 | [Loop](https://github.com/MrKai77/Loop) | 1 · 404 · 13 | 0 | 0 | 9 (+3 case) | 0 |
 | [NetNewsWire](https://github.com/Ranchero-Software/NetNewsWire) | 9 · 472 · 1 | 0 | 0 | 0 (+4 case) | 85 |
 | [IceCubesApp](https://github.com/Dimillian/IceCubesApp) | 1 · 733 · 18 | **2** | **33** | 91 | 47 |
-| [Mastodon for iOS](https://github.com/mastodon/mastodon-ios) | 9 · 980 · 53 | **7** | **11** | 139 | 27 |
+| [Mastodon for iOS](https://github.com/mastodon/mastodon-ios) | 9 · 980 · 53 | **9** | **11** | 139 | 27 |
 | [HSTracker](https://github.com/HearthSim/HSTracker) | 23 · 777 · 13 | 0 | 0 | 78 (+1 case) | 10 |
-| [Nimble Commander](https://github.com/mikekazakov/nimble-commander) | 54 · 1322 · 1 | 0 | 0 | 323 (+2 case) | 0 |
-| [GoMap](https://github.com/bryceco/GoMap) | 15 · 761 · 33 | **2** | 0 | 94 (+3 case) | 10 |
+| [Nimble Commander](https://github.com/mikekazakov/nimble-commander) | 54 · 1322 · 1 | 0 | 0 | 323 (+2 case) | 0 † |
+| [GoMap](https://github.com/bryceco/GoMap) | 15 · 761 · 33 | **4** | 0 | 94 (+3 case) | 10 |
 | [DuckDuckGo](https://github.com/duckduckgo/apple-browsers) | 19 · 2476 · 26 | **20** | 0 | 523 | 166 |
 
-**Bold** ships as a user-visible bug — Mastodon's Albanian `"Option %ld"` is
-translated `"%ld nga %ld"`, reading a second argument the call never supplies,
-and its Russian plurals leave `other` empty, which renders as nothing for any
-fractional count. Whisky and Loop have no unlocalized strings at all, across 213
-files: the tool reports zero when zero is the answer.
+**Bold** ships as a user-visible bug. Mastodon's Albanian `"Option %ld"` is
+translated `"%ld nga %ld"`, which reads a second argument the call never
+supplies. Its Russian plurals leave `other` empty, so any fractional count
+renders as nothing at all. GoMap's Arabic translator pasted the *description* of
+a string into two of its plural forms, and the count went with it.
+
+Whisky and Loop genuinely have no unlocalized strings, and the tool finds none
+across their 213 files. No false positives padding the column.
+
+† Nimble Commander is Objective-C++. It has 54 catalogs and three Swift files,
+so its zero means `scan` had almost nothing to read — `check` is fully
+meaningful there, `scan` is not. Objective-C sources are not scanned at all;
+that is the largest gap in this tool today.
 
 `check` runs in under a second on eight of the nine — DuckDuckGo's 2,476 keys
 across 19 catalogs take 1.7s. `scan` is under five seconds everywhere except
@@ -200,9 +223,8 @@ directly. Neither writes a file unless you ask it to.
 `xclocsmith <command> --help` lists exactly the flags that command accepts — a
 flag one command takes and another does not is an error, never a silent no-op.
 
-**Exit codes:** `0` clean, `1` findings, `2` usage or I/O error. A
-misconfiguration never masquerades as a finding: an unknown `--lang` fails the
-run rather than quietly checking nothing.
+**Exit codes:** `0` clean, `1` findings, `2` usage or I/O error. An unknown
+`--lang` fails the run instead of checking nothing and reporting clean.
 
 ## Checking catalogs
 
@@ -254,11 +276,11 @@ FAIL  incomplete plural variations (1):
 ```
 
 A flat translation of a pluralised key counts as incomplete too, for every
-language that needs more than one form. One string cannot serve four
-grammatical numbers, however complete the percentage looks.
+language that needs more than one form — Russian answered with a single string
+mistranslates every count from 2 upwards.
 
-**Format specifiers**, the classic localization crash, which nothing in Xcode
-warns you about:
+**Format specifiers**, the classic localization crash, which no build step
+checks:
 
 ```
 FAIL  format specifiers disagree with the source string (1):
@@ -266,9 +288,10 @@ FAIL  format specifiers disagree with the source string (1):
       "%@ posts"  →  "% publicacions"
 ```
 
-Positional reordering (`%2$@ の %1$@`) is understood — that is what positional
+Positional reordering (`%2$@ の %1$@`) is fine — reordering is what positional
 specifiers are for. Substitutions (`%#@count@`) are expanded and checked through
-to the variations inside them.
+to the variations inside them, and so are plural forms: a German `other` that
+dropped its `%lld` is the single likeliest place for this bug to hide.
 
 **Near-duplicates and case variants.** Compared on the *strings*, not the keys,
 so a project that keys by identifier gets a real answer rather than a list of
@@ -430,8 +453,8 @@ xclocsmith xcloc apply ja.xcloc --apply
 each `<file>` element to the catalog for its table — Xcode names them
 `[table].strings` even when the strings came from a `.xcstrings` — merges into
 the existing structure rather than replacing it, and maps XLIFF states onto
-catalog states. Machine translation is imported as `needs_review` whatever its
-state claims, because one marked `translated` is one nobody looks at again.
+catalog states. Machine translation is always imported as `needs_review`, even when the XLIFF
+claims `translated`; otherwise it skips human review for good.
 
 Two things it will not do: **invent keys** (an XLIFF translates a catalog, it
 does not extend one) and **guess at a variation it does not recognise**. Both are
@@ -499,9 +522,22 @@ Text("Debug only")        // xclocsmith:ignore
 
 ## Continuous integration
 
+String Catalogs need a Swift toolchain, so this wants a macOS runner — which on
+private repositories bills at ten times the Linux rate. Budget for it.
+
 ```yaml
-- run: xclocsmith check
-- run: xclocsmith scan
+jobs:
+  localization:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: .build
+          key: xclocsmith-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+      - run: swift build -c release --package-path Tools/xclocsmith
+      - run: Tools/xclocsmith/.build/release/xclocsmith check
+      - run: Tools/xclocsmith/.build/release/xclocsmith scan
 ```
 
 Use `--strict` to fail on advisories too (near-duplicate keys, bypasses,
@@ -519,8 +555,9 @@ esac
 
 ## Agents and automation
 
-Every command that produces findings takes `--json` (all but `init`), rendered
-from the same report as the human output, so the two cannot disagree. For
+Every command that reports findings takes `--json` — everything but `init`. It
+is rendered from the same report object as the text output, so the two do not
+drift apart. For
 `check`, `scan`, `prune` and `xcloc`, `failures` equals the number of findings
 enumerated in the payload — fix everything in the JSON and you reach exit 0.
 

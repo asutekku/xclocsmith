@@ -318,6 +318,82 @@ final class RealWorldTests: XCTestCase {
         // equivalent and must not be reported.
     }
 
+    /// Format specifiers are compared *inside* plural variations.
+    ///
+    /// They were not, for the whole of this tool's life before this test: the
+    /// walk that collects comparable values descended into the `stringUnit`
+    /// object instead of stopping at the category that holds it, so nothing
+    /// under `variations` was ever collected. A German `other` form that had
+    /// dropped its `%lld` reported clean — and plurals are precisely where the
+    /// counts live.
+    ///
+    /// GoMap ships this in Arabic: `one` and `other` hold the translator's
+    /// description of the string rather than the string, so the count is gone.
+    func testFormatSpecifiersAreCheckedInsidePluralVariations() throws {
+        let catalog = try makeCatalog(strings: [
+            "%lld posts": .object(["localizations": .object([
+                "en": plural(["one": "1 post", "other": "%lld posts"]),
+                "de": plural(["one": "1 Beitrag", "other": "Beiträge"]),
+            ])]),
+        ])
+        let mismatches = try check(catalog, languages: ["de"]).catalogs[0].formatMismatches
+        XCTAssertEqual(mismatches.count, 1)
+        XCTAssertEqual(mismatches.first?.language, "de")
+        XCTAssertTrue(mismatches.first?.problem.contains("plural.other") == true)
+        XCTAssertEqual(mismatches.first?.translation, "Beiträge")
+    }
+
+    /// …but a category standing for one known count may spell the number out.
+    ///
+    /// English "%lld new post" is German "ein neuer Beitrag" and Arabic
+    /// "بقي تكرار واحد". Comparing those was 60 of the first 62 findings the
+    /// fix above produced, which would have made the whole check unusable.
+    func testExactCountCategoriesMaySpellTheNumberOut() throws {
+        let catalog = try makeCatalog(strings: [
+            "timeline-new-posts %lld": .object(["localizations": .object([
+                "en": plural(["one": "%lld new post", "other": "%lld new posts"]),
+                "de": plural(["one": "ein neuer Beitrag", "other": "%lld neue Beiträge"]),
+            ])]),
+        ])
+        XCTAssertEqual(try check(catalog, languages: ["de"]).catalogs[0].formatMismatches, [])
+        XCTAssertTrue(PluralRules.isExactCount(category: "plural.one"))
+        XCTAssertTrue(PluralRules.isExactCount(category: "plural.two"))
+        XCTAssertFalse(PluralRules.isExactCount(category: "plural.other"))
+        XCTAssertFalse(PluralRules.isExactCount(category: "plural.many"))
+        XCTAssertFalse(PluralRules.isExactCount(category: ""))
+    }
+
+    /// A template carries the source string, because a key is not always one.
+    ///
+    /// Mastodon keys by identifier: `notifications.label.favorite %lld` renders
+    /// as "starred". Handing that key to a translator — or a model — with no
+    /// English beside it asks for a translation of a string they cannot see.
+    func testTemplateCarriesTheSourceStringAndComment() throws {
+        let catalog = try makeCatalog(strings: [
+            "notifications.label.favorite": .object([
+                "comment": .string("Tab label under the icon"),
+                "localizations": .object(["en": unit("starred"), "ru": .object([:])]),
+            ]),
+            "Save": .object(["localizations": .object(["en": unit("Save"), "ru": .object([:])])]),
+        ])
+        let output = root.appendingPathComponent("work.json")
+        var configuration = Configuration(root: root.path)
+        configuration.targets = [Target(name: "App", sources: [], catalogs: ["App/Localizable.xcstrings"])]
+        _ = try CheckCommand(
+            workspace: Workspace(configuration: configuration),
+            options: .init(languages: ["ru"], templatePath: output.path)
+        ).run()
+
+        let payload = try JSONParser.parse(String(contentsOfFile: output.path, encoding: .utf8))
+        let strings = try XCTUnwrap(payload["strings"]?.objectValue)
+        let entry = try XCTUnwrap(strings["notifications.label.favorite"]?.objectValue)
+        XCTAssertEqual(entry["source"]?.stringValue, "starred")
+        XCTAssertEqual(entry["comment"]?.stringValue, "Tab label under the icon")
+        XCTAssertEqual(entry["value"]?.stringValue, "TODO")
+        // A key that is its own English string stays in the short form.
+        XCTAssertEqual(strings["Save"]?.stringValue, "TODO")
+    }
+
     // MARK: - Helpers
 
     /// The catalog keys `scan` would demand for a fragment of Swift.

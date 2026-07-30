@@ -229,15 +229,22 @@ public struct Catalog {
         localization.removeValue(forKey: "substitutions")
 
         var entries: [(String, String)] = []
+        // The shape is `variations.<kind>.<category>` holding a `stringUnit`,
+        // and a category may itself hold further variations. Walking it
+        // generically descended into the `stringUnit` object instead of
+        // recognising the category as the thing that carries the text, so no
+        // plural variation was ever collected — and a German `other` form that
+        // had dropped its `%lld` reported clean.
         func walk(_ value: JSONValue, path: String) {
             guard case .object(let fields) = value else { return }
             if let unit = fields["stringUnit"]?.objectValue, let text = unit["value"]?.stringValue {
                 entries.append((path, text))
             }
-            for (name, nested) in fields where name != "stringUnit" {
-                guard case .object(let children) = nested else { continue }
-                for (child, value) in children {
-                    walk(value, path: path.isEmpty ? "\(name).\(child)" : "\(path).\(name).\(child)")
+            guard let variations = fields["variations"]?.objectValue else { return }
+            for (kind, cases) in variations {
+                guard let cases = cases.objectValue else { continue }
+                for (category, entry) in cases {
+                    walk(entry, path: path.isEmpty ? "\(kind).\(category)" : "\(path).\(kind).\(category)")
                 }
             }
         }

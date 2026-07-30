@@ -20,6 +20,30 @@ import Foundation
 public enum PluralRules {
     public static let allCategories = ["zero", "one", "two", "few", "many", "other"]
 
+    /// Categories that stand for a small, known count, where a translation may
+    /// legitimately spell the number out instead of substituting it.
+    ///
+    /// The comparison this feeds is about *format specifiers*, not grammar: the
+    /// question is only whether a missing `%lld` will leave the reader without a
+    /// number they needed. In `zero`, `one` and `two` the count is implied by
+    /// the sentence, which is why "ein neuer Beitrag" and "بقي تكرار واحد" are
+    /// correct translations of "%lld new post" and "%lld Loop left".
+    ///
+    /// Known limitation: in Russian, Ukrainian, Belarusian and Serbo-Croatian
+    /// the `one` category also covers 21, 31, 41 and so on, so a spelled-out
+    /// singular there really is wrong. Catching that needs the CLDR rule
+    /// expressions rather than the category names, and reporting it for every
+    /// language would be far more wrong than missing it in four.
+    static let exactCountCategories: Set<String> = ["zero", "one", "two"]
+
+    /// True for a variation path whose category stands for one known count.
+    /// Paths look like `plural.one` or `device.iphone.plural.two`.
+    public static func isExactCount(category path: String) -> Bool {
+        guard let last = path.split(separator: ".").last else { return false }
+        guard path.contains("plural.") else { return false }
+        return exactCountCategories.contains(String(last))
+    }
+
     public struct Categories: Equatable, Sendable {
         public let required: [String]
         public let optional: [String]

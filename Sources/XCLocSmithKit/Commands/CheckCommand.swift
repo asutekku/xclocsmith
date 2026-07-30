@@ -60,11 +60,27 @@ public struct CheckCommand {
                     language: bucket.language,
                     disambiguate: buckets.count > 1
                 )
+                // The source string and the developer's comment are the whole
+                // of the context a translator gets. Fetching them here costs a
+                // cached catalog read and saves whoever fills this in from
+                // guessing what an identifier key says.
+                var sources: [String: String] = [:]
+                var comments: [String: String] = [:]
+                if let source = workspace.catalog(at: bucket.catalog) {
+                    for key in keys {
+                        if let text = source.displayText(key, source.sourceLanguage) {
+                            sources[key] = text
+                        }
+                        if let comment = source.comment(key) { comments[key] = comment }
+                    }
+                }
                 try TranslationPayload.writeTemplate(
                     keys: keys,
                     catalog: bucket.catalog,
                     language: bucket.language,
                     pluralKeys: pluralisedByCatalog[bucket.catalog] ?? [],
+                    sources: sources,
+                    comments: comments,
                     to: workspace.configuration.absolute(path)
                 )
                 report.templatesWritten.append(path)
@@ -208,6 +224,14 @@ public struct CheckCommand {
                 for (path, value) in catalog.comparableEntries(key, language) {
                     // Empty values are already reported as missing work.
                     guard !value.isEmpty else { continue }
+                    // A category that stands for one known count may spell the
+                    // number out and drop the specifier — English "%lld new
+                    // post" is German "ein neuer Beitrag", and Arabic writes
+                    // "بقي تكرار واحد" for "%lld Loop left". That is idiomatic,
+                    // and it was 60 of the first 62 findings this comparison
+                    // produced. `few`, `many` and `other` span unbounded counts,
+                    // so they must carry the number.
+                    guard !PluralRules.isExactCount(category: path) else { continue }
                     // A variation is compared against the same variation in the
                     // source language; with no counterpart there is nothing
                     // trustworthy to compare against.
