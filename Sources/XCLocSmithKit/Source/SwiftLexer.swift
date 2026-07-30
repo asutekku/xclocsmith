@@ -19,6 +19,10 @@ public struct SourceLiteral: Equatable, Sendable {
     /// Regex source matching the catalog keys this interpolation could produce
     /// (`"Hello \(name)"` → `Hello %@` or `Hello %lld`).
     public let formatPattern: String?
+    /// The key an interpolated literal would be extracted as, with `%@` standing
+    /// in for each interpolation. Reporting the raw value instead shows `" ⸱ "`
+    /// for `"\(a) ⸱ \(b)"`, which names nothing anyone can search for.
+    public let formatKey: String?
 }
 
 /// The result of tokenising one Swift file.
@@ -132,6 +136,15 @@ private struct LexContext {
     /// A literal `%` is written `%%` by Xcode's extractor — `"Battery at
     /// \(pct)%"` is stored as `"Battery at %lld%%"` — so the pattern has to
     /// double it too, or every such string reads as missing from the catalog.
+    /// The extracted-key form: interpolations become `%@`, literal percents are
+    /// doubled the way Xcode writes them.
+    static func formatKey(from template: String) -> String {
+        template
+            .split(separator: interpolationSentinel, omittingEmptySubsequences: false)
+            .map { $0.replacingOccurrences(of: "%", with: "%%") }
+            .joined(separator: "%@")
+    }
+
     static func formatPattern(from template: String) -> String {
         template
             .split(separator: interpolationSentinel, omittingEmptySubsequences: false)
@@ -335,7 +348,8 @@ private struct LexContext {
             hasInterpolation: hasInterpolation,
             isMultiline: isMultiline,
             isNested: isNested,
-            formatPattern: hasInterpolation ? Self.formatPattern(from: patternTemplate) : nil
+            formatPattern: hasInterpolation ? Self.formatPattern(from: patternTemplate) : nil,
+            formatKey: hasInterpolation ? Self.formatKey(from: patternTemplate) : nil
         ))
 
         return end

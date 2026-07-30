@@ -133,7 +133,7 @@ public enum SourceAnalyzer {
                     // types statically, so the pattern matches any of them.
                     guard let pattern = literal.formatPattern else { continue }
                     result.strings.append(FoundString(
-                        value: literal.value,
+                        value: literal.formatKey ?? literal.value,
                         file: file.displayPath,
                         line: literal.line,
                         context: contextName,

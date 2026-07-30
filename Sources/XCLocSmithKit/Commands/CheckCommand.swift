@@ -139,12 +139,40 @@ public struct CheckCommand {
 
                 guard !isSource else { continue }
 
-                if let value = catalog.value(key, language), value == key, key.count > 3 {
+                // The source string is the source-language value when there is
+                // one. Plenty of projects use identifier keys —
+                // "notifications.label.favorite %lld" whose English value is
+                // "starred" — and comparing a translation against the key then
+                // compares it against something no user ever sees.
+                let sourceString = catalog.value(key, catalog.sourceLanguage) ?? key
+
+                if let value = catalog.value(key, language), value == sourceString, sourceString.count > 3 {
                     identical.append(key)
                 }
-                for value in catalog.comparableValues(key, language) {
-                    if let problem = FormatSpecifierScanner.mismatch(source: key, translation: value) {
-                        formatMismatches.append(FormatMismatch(key: key, language: language, problem: problem))
+                let declaredSpecifiers = catalog.substitutionSpecifiers(key, language)
+                let sourceEntries = Dictionary(
+                    catalog.comparableEntries(key, catalog.sourceLanguage),
+                    uniquingKeysWith: { first, _ in first }
+                )
+                for (path, value) in catalog.comparableEntries(key, language) {
+                    // Empty values are already reported as missing work.
+                    guard !value.isEmpty else { continue }
+                    // A variation is compared against the same variation in the
+                    // source language; with no counterpart there is nothing
+                    // trustworthy to compare against.
+                    guard let counterpart = sourceEntries[path] ?? (path.isEmpty ? sourceString : nil) else {
+                        continue
+                    }
+                    if let problem = FormatSpecifierScanner.mismatch(
+                        source: counterpart,
+                        translation: value,
+                        substitutions: declaredSpecifiers
+                    ) {
+                        formatMismatches.append(FormatMismatch(
+                            key: key,
+                            language: language,
+                            problem: path.isEmpty ? problem : "[\(path)] \(problem)"
+                        ))
                         break   // one report per key and language is enough
                     }
                 }

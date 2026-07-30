@@ -190,6 +190,34 @@ public struct Catalog {
         }
     }
 
+    /// Comparable values with the path that identifies each one: `""` for a flat
+    /// translation, `"plural.one"` for a variation.
+    ///
+    /// The path matters because a plural category is compared against the *same*
+    /// category in the source language. English "1 new post" is German "Ein neuer
+    /// Beitrag" — the singular spells the number out and carries no specifier at
+    /// all, which is correct and is not a mismatch.
+    public func comparableEntries(_ key: String, _ language: String) -> [(path: String, value: String)] {
+        guard var localization = localization(key, language) else { return [] }
+        localization.removeValue(forKey: "substitutions")
+
+        var entries: [(String, String)] = []
+        func walk(_ value: JSONValue, path: String) {
+            guard case .object(let fields) = value else { return }
+            if let unit = fields["stringUnit"]?.objectValue, let text = unit["value"]?.stringValue {
+                entries.append((path, text))
+            }
+            for (name, nested) in fields where name != "stringUnit" {
+                guard case .object(let children) = nested else { continue }
+                for (child, value) in children {
+                    walk(value, path: path.isEmpty ? "\(name).\(child)" : "\(path).\(name).\(child)")
+                }
+            }
+        }
+        walk(.object(localization), path: "")
+        return entries
+    }
+
     /// Values that must carry the same format specifiers as the key: the flat
     /// translation and each plural/device variation of it.
     ///
@@ -223,57 +251,32 @@ public struct Catalog {
         localization(key, language)?["substitutions"]?.objectValue ?? [:]
     }
 
-    /// Problems within the substitution structure itself:
-    /// a `%#@name@` reference with no matching substitution, a substitution
-    /// whose values do not use the specifier it declares, or one nothing refers to.
+    /// Each declared substitution's `formatSpecifier`, by name.
+    public func substitutionSpecifiers(_ key: String, _ language: String) -> [String: String] {
+        substitutions(key, language).compactMapValues { $0.objectValue?["formatSpecifier"]?.stringValue }
+    }
+
+    /// Problems in the substitution structure itself.
+    ///
+    /// Only the unambiguous ones: a `%#@name@` reference nothing declares, and a
+    /// declared substitution nothing references. Comparing the specifiers *inside*
+    /// a substitution against the one it declares looks tempting and is wrong —
+    /// those values legitimately contain `%arg` for the substitution's own
+    /// argument and `%2$@` for other arguments of the outer string.
     public func substitutionProblems(_ key: String, _ language: String) -> [String] {
         let declared = substitutions(key, language)
-        guard !declared.isEmpty || FormatSpecifierScanner.substitutionReferences(in: key).isEmpty == false else {
-            return []
-        }
-
-        var problems: [String] = []
         var referenced = Set<String>()
         for value in comparableValues(key, language) {
             referenced.formUnion(FormatSpecifierScanner.substitutionReferences(in: value))
         }
-        // The key itself declares the references the source string uses.
-        let keyReferences = Set(FormatSpecifierScanner.substitutionReferences(in: key))
+        guard !declared.isEmpty || !referenced.isEmpty else { return [] }
 
+        var problems: [String] = []
         for name in referenced.sorted() where declared[name] == nil {
             problems.append("references %#@\(name)@ but no substitution declares it")
         }
-        for name in declared.keys.sorted() where !referenced.contains(name) && !referenced.isEmpty {
+        for name in declared.keys.sorted() where !referenced.contains(name) {
             problems.append("declares substitution \"\(name)\" that no value references")
-        }
-        for name in keyReferences.sorted() where !referenced.isEmpty && !referenced.contains(name) {
-            problems.append("drops %#@\(name)@, which the source string uses")
-        }
-
-        for (name, substitution) in declared.sorted(by: { $0.key < $1.key }) {
-            guard let fields = substitution.objectValue,
-                  let specifier = fields["formatSpecifier"]?.stringValue else { continue }
-            var nested: [String] = []
-            func walk(_ value: JSONValue) {
-                switch value {
-                case .object(let fields):
-                    if let unit = fields["stringUnit"]?.objectValue, let text = unit["value"]?.stringValue {
-                        nested.append(text)
-                    }
-                    for child in fields.values { walk(child) }
-                case .array(let items): items.forEach(walk)
-                default: break
-                }
-            }
-            walk(substitution)
-            for text in nested {
-                let specifiers = FormatSpecifierScanner.specifiers(in: text)
-                guard !specifiers.isEmpty else { continue }
-                if !specifiers.contains(where: { $0.raw.hasSuffix(specifier) || specifier.hasSuffix(String($0.conversion)) }) {
-                    problems.append("substitution \"\(name)\" declares %\(specifier) but a value uses \(specifiers[0].raw)")
-                    break
-                }
-            }
         }
         return problems
     }
