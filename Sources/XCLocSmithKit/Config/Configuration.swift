@@ -74,13 +74,19 @@ public struct Configuration {
     /// says otherwise. This is the weakest rule the classifier has — it fires
     /// on a name alone — so it holds only names that no common non-UI API uses.
     ///
-    /// `description:` was removed after the nine-project sample: no AppKit,
-    /// UIKit or SwiftUI localization API takes it, while `XCTestExpectation`,
-    /// `NSError` and `CustomStringConvertible` all do. A project that does
-    /// display a `description:` is still caught by the evidence-based rule,
-    /// which reads the declaring type.
+    /// Three names left this list after the nine-project sample, each because
+    /// no Apple API takes display text under that label:
+    ///
+    /// - `description:` — `XCTestExpectation`, `NSError` and
+    ///   `CustomStringConvertible` use it; no localization API does.
+    /// - `header:` and `footer:` — SwiftUI's are `@ViewBuilder`, never a
+    ///   string, so a literal there belongs to somebody else's type. Whisky's
+    ///   were a `TextTableColumn(header:)` in a command-line target.
+    ///
+    /// A project that does display one is still caught by the evidence-based
+    /// rule, which reads the declaring type instead of guessing from the name.
     public var localizableParams: Set<String> = [
-        "title", "titleKey", "label", "labelKey", "header", "footer", "prompt",
+        "title", "titleKey", "label", "labelKey", "prompt",
         "message", "placeholder", "subtitle", "caption", "hint",
     ]
     public var skipParams: Set<String> = [

@@ -31,15 +31,15 @@ with no configuration written by hand. 8,077 keys across 70 distinct locales,
 
 | Project | ★ | Catalogs · keys · locales | Broken format strings | Missing plural forms | Duplicate strings | Unlocalized in code | `check` / `scan` |
 |---|---:|---|---|---|---|---|---|
-| [Whisky](https://github.com/Whisky-App/Whisky) | 15.1k | 1 · 152 · 21 | — | — | 8 | 3 | 0.04s / 0.3s |
-| [Loop](https://github.com/MrKai77/Loop) | 11.3k | 1 · 404 · 13 | — | — | 9 + 3 case-only | **0** | 0.09s / 1.0s |
-| [NetNewsWire](https://github.com/Ranchero-Software/NetNewsWire) | 10.2k | 9 · 472 · 1 | — | — | 4 case-only | 85 | 0.02s / 2.5s |
-| [IceCubesApp](https://github.com/Dimillian/IceCubesApp) | 7.0k | 1 · 733 · 18 | **2** | **33** | 91 | 47 | 0.19s / 1.6s |
-| [Mastodon for iOS](https://github.com/mastodon/mastodon-ios) | 2.3k | 9 · 980 · 53 | **7** | **11** | 139 | 27 | 0.67s / 4.8s |
-| [HSTracker](https://github.com/HearthSim/HSTracker) | 1.2k | 23 · 777 · 13 | — | — | 78 | 10 | 0.09s / 4.7s |
-| [Nimble Commander](https://github.com/mikekazakov/nimble-commander) | 0.7k | 54 · 1322 · 1 | — | — | 323 | 0 | 0.06s / 2.4s |
+| [Whisky](https://github.com/Whisky-App/Whisky) | 15.1k | 1 · 152 · 21 | — | — | 8 | **0** | 0.04s / 0.3s |
+| [Loop](https://github.com/MrKai77/Loop) | 11.3k | 1 · 404 · 13 | — | — | 9 + 3 case-only | **0** | 0.08s / 0.9s |
+| [NetNewsWire](https://github.com/Ranchero-Software/NetNewsWire) | 10.2k | 9 · 472 · 1 | — | — | 4 case-only | 85 | 0.01s / 2.7s |
+| [IceCubesApp](https://github.com/Dimillian/IceCubesApp) | 7.0k | 1 · 733 · 18 | **2** | **33** | 91 | 47 | 0.17s / 1.4s |
+| [Mastodon for iOS](https://github.com/mastodon/mastodon-ios) | 2.3k | 9 · 980 · 53 | **7** | **11** | 139 | 27 | 0.65s / 4.3s |
+| [HSTracker](https://github.com/HearthSim/HSTracker) | 1.2k | 23 · 777 · 13 | — | — | 78 | 10 | 0.09s / 4.9s |
+| [Nimble Commander](https://github.com/mikekazakov/nimble-commander) | 0.7k | 54 · 1322 · 1 | — | — | 323 | **0** | 0.06s / 4.4s |
 | [GoMap](https://github.com/bryceco/GoMap) | 0.4k | 15 · 761 · 33 | **2** | — | 94 | 10 | 0.19s / 2.0s |
-| [DuckDuckGo](https://github.com/duckduckgo/apple-browsers) | 0.2k | 19 · 2476 · 26 | **20** | — | 523 | 166 | 0.94s / 50s |
+| [DuckDuckGo](https://github.com/duckduckgo/apple-browsers) | 0.2k | 19 · 2476 · 26 | **20** | — | 523 | 166 | 1.7s / 62s |
 
 Bold columns are the ones that ship as bugs. The rest are advisory.
 
@@ -84,10 +84,13 @@ both already translated into 13.
 
 ### Strings the app shows and never localizes
 
-47 in IceCubesApp — `Label("Retry Upload")`, `Toggle("Compact Mode")`,
-`.navigationTitle("Share post as image")`. 166 in DuckDuckGo. And **zero** in
-Loop, across 149 files and 258 user-visible strings: a linter that cannot come
-back clean is not measuring anything.
+47 in IceCubesApp — `Toggle("Avatar Shape")`, `Label("Camera")`,
+`.confirmationDialog("Block User")`. 166 in DuckDuckGo. 27 in Mastodon,
+almost all in one work-in-progress folder.
+
+And **zero** in three of the nine: Whisky, Loop and Nimble Commander come back
+clean, across 216 files and 441 user-visible strings between them. A linter that
+cannot come back clean is not measuring anything.
 
 ### Where it says no
 
@@ -110,8 +113,8 @@ hex-float specifier, `%#@name@` not counted as consuming its argument, arguments
 consumed inside a substitution's own variations, and plural categories compared
 against the flat source instead of their counterpart.
 
-The next eight projects cost sixteen more fixes. The largest were about reading
-a project's own conventions rather than assuming Apple's:
+The next eight projects cost seventeen more fixes. The largest were about
+reading a project's own conventions rather than assuming Apple's:
 
 | | Before | After |
 |---|---:|---:|
@@ -121,6 +124,7 @@ a project's own conventions rather than assuming Apple's:
 | HSTracker, user-visible strings **found** | 32 | 2,104 |
 | HSTracker, keys offered for deletion | 515 | 92 |
 | Nimble Commander, keys offered for deletion | 947 | 152 |
+| Whisky, strings reported unlocalized | 3 | 0 |
 | GoMap, `scan` wall clock | 4m 23s | 2.0s |
 
 The one that matters most is the fourth. A false positive is visible; **a false
@@ -131,6 +135,13 @@ pass, and offered to delete 515 live keys. It now finds project-defined
 localization APIs by reading their bodies: a function whose first parameter
 reaches `NSLocalizedString` is one, and a function merely *named* `localize` is
 not.
+
+Whisky's three are the small version of the same lesson. They were
+`TextTableColumn(header:)` — a table printed by its *command-line* target, using
+a third-party package. `header:` was on the list of names guessed to be display
+text, but SwiftUI's `header:` is a `@ViewBuilder` and never a string, so a
+literal under that label always belongs to somebody else's type. It came off the
+list, along with `footer:`, for the same reason `description:` had.
 
 Each of those is a regression test in
 [`RealWorldTests.swift`](Tests/XCLocSmithTests/RealWorldTests.swift) and

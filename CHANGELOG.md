@@ -179,8 +179,11 @@ ones: the output looked clean.
   of 29,932 findings.
 - Test code is not scanned. DuckDuckGo's `expectation(description:)` and its
   fixture builders were 6,140 findings on their own.
-- `description:` left the default parameter-name list — no AppKit, UIKit or
-  SwiftUI API localizes it, while `XCTestExpectation` and `NSError` use it.
+- `description:`, `header:` and `footer:` left the default parameter-name list.
+  No AppKit, UIKit or SwiftUI API takes display text under those labels —
+  SwiftUI's `header:`/`footer:` are `@ViewBuilder` — while
+  `XCTestExpectation(description:)` and `TextTableColumn(header:)` do. Whisky's
+  entire unlocalized column was three CLI table headers.
 - `DispatchQueue(label:)`, `@available(message:)` and other identifier-shaped
   arguments are skipped, as is `message:` on a call whose name says it logs.
 - A concatenated fragment is a bypass and nothing else. It has no catalog key to

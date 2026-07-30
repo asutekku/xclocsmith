@@ -76,6 +76,28 @@ final class RecallTests: XCTestCase {
         XCTAssertEqual(found(#"@available(*, deprecated, message: "Use foo instead")"#), [])
     }
 
+    /// SwiftUI's `header:` and `footer:` are `@ViewBuilder`, never strings, so
+    /// a literal under those labels belongs to somebody else's type. Whisky's
+    /// were `TextTableColumn(header:)` — a table printed by a command-line
+    /// tool, and the whole of its reported unlocalized text.
+    func testHeaderAndFooterAreNotGuessedToBeDisplayText() {
+        XCTAssertEqual(found(#"let c = TextTableColumn(header: "Windows Version")"#), [])
+        XCTAssertEqual(found(#"let s = SomeType(footer: "Trailing note")"#), [])
+    }
+
+    /// …but a project type that does route `header:` through
+    /// `LocalizedStringKey` is still caught, by evidence rather than by name.
+    func testADeclaredTypeThatLocalizesHeaderIsStillFound() {
+        let source = """
+            struct SectionRow: View {
+                let header: String
+                var body: some View { Text(LocalizedStringKey(header)) }
+            }
+            func use() -> some View { SectionRow(header: "Recent Activity") }
+            """
+        XCTAssertEqual(found(source), ["Recent Activity"])
+    }
+
     /// Test code is never localized, and its helpers teach the classifier
     /// nothing. DuckDuckGo's `expectation(description:)` and its fixture
     /// builders were 6,140 of 29,932 findings.
