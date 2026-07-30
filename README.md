@@ -17,21 +17,21 @@ It does Xcode localization and nothing else.
 ```console
 $ xclocsmith check
 App/Localizable.xcstrings  (Localizable, source en)
-  412 keys, 407 translatable
-  de: 407/407 (100%)
-  ja: 388/407 (95%)   missing 19
-  ru: 401/407 (99%)   missing 4  unreviewed 12
+  123 keys, 123 translatable
+  de: 123/123 (100%)
+  ja: 120/123 (98%)  missing 3  unreviewed 1
+  ru: 123/123 (100%)
 
-  FAIL  missing ja translations (19):
-    - Cancel
-    - Delete %@
-    …
+  FAIL  missing ja translations (3):
+    - Export Backup
+    - Restore from Backup
+    - Storage almost full
 
   FAIL  format specifiers disagree with the source string (1):
     - [ru] "Delete %@" has 0 format specifier(s), the source has 1
         "Delete %@"  →  "Удалить"
 
-23 failing finding(s), 12 advisory. Exit 1.
+4 failing finding(s), 1 advisory. Exit 1.
 ```
 
 ## Translate with an LLM, and verify the result
@@ -218,16 +218,19 @@ catalog, with the outstanding keys named rather than counted:
 
 ```
 App/Localizable.xcstrings  (Localizable, source en)
-  412 keys, 407 translatable
-  de: 407/407 (100%)
-  ja: 388/407 (95%)   missing 19
-  ru: 401/407 (99%)   missing 4  unreviewed 12
+  123 keys, 123 translatable
+  de: 123/123 (100%)
+  ja: 120/123 (98%)  missing 3  unreviewed 1
+  ru: 123/123 (100%)
 
-  FAIL  missing ja translations (19):
-    - Cancel
-    - Delete %@
-    …
+  FAIL  missing ja translations (3):
+    - Export Backup
+    - Restore from Backup
+    - Storage almost full
 ```
+
+Lists run to 50 entries before they truncate, so a language that has never been
+started does not fill your terminal.
 
 `missing` is a key with no value or an empty one, `unreviewed` a `needs_review`
 unit — the state Xcode writes for machine translation and for a source string
@@ -280,6 +283,26 @@ xclocsmith scan --json --out work.json     # findings plus a fill-in template
 
 Strings your code shows but never localizes, found by tokenizing Swift rather
 than matching lines.
+
+```console
+$ xclocsmith scan
+FAIL  strings not in a catalog (2):
+  App/SettingsView.swift:7  [Toggle]  "Export Backup"
+      → App/Localizable.xcstrings
+  App/SettingsView.swift:6  [Button]  "Scan Storage"
+      → App/Localizable.xcstrings
+
+note  localization bypasses (1):
+  App/Legacy.swift:5  .text = "…" needs String(localized:) to localize
+      titleLabel.text = "Welcome back"
+
+note  keys not referenced in source — App/Localizable.xcstrings (1):
+  - Retired string
+  Review before removing: keys built at runtime cannot be seen from source.
+
+Scanned 2 Swift file(s), 3 user-visible string(s).
+2 failing finding(s), 2 advisory. Exit 1.
+```
 
 **Recognized:** SwiftUI initializers and modifiers, `String(localized:)`,
 `AttributedString(localized:)`, `LocalizedStringResource`, `NSLocalizedString`,
