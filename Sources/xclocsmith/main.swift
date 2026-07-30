@@ -132,6 +132,12 @@ func run() -> Int32 {
         let renderer = TextRenderer()
         let json = parsed.isSet(Flags.json)
         let strict = parsed.isSet(Flags.strict)
+        // Resolved before anything runs. Validating it at the point of printing
+        // means a misspelled --format does the entire scan first and then
+        // refuses to show you the answer.
+        let format = spec.flag(named: Flags.format.name) == nil
+            ? (json ? OutputFormat.json : .text)
+            : try CommandLineParser.format(parsed)
 
         switch spec.name {
         case "check":
@@ -147,7 +153,7 @@ func run() -> Int32 {
             let report = try command.run(catalogPaths: catalogs.isEmpty ? nil : catalogs)
             return emit(
                 report,
-                format: try CommandLineParser.format(parsed),
+                format: format,
                 configuration: configuration,
                 text: renderer.render(report),
                 strict: strict
@@ -177,7 +183,7 @@ func run() -> Int32 {
             let report = try command.run()
             return emit(
                 report,
-                format: try CommandLineParser.format(parsed),
+                format: format,
                 configuration: configuration,
                 text: renderer.render(report),
                 strict: strict
@@ -185,7 +191,12 @@ func run() -> Int32 {
 
         case "diff":
             let configuration = try makeConfiguration(parsed)
-            let command = DiffCommand(options: .init(languages: CommandLineParser.languages(parsed)))
+            // `--lang all` means every language either side has, which is
+            // already what an empty list means here. Passing "all" through
+            // would compare a language literally named "all" and find nothing.
+            let requested = CommandLineParser.languages(parsed)
+            let languages = requested.contains("all") ? [] : requested
+            let command = DiffCommand(options: .init(languages: languages))
             let paths = catalogArguments(parsed)
             let report: DiffReport
             if paths.count == 2 {
@@ -205,6 +216,12 @@ func run() -> Int32 {
                 let words = wordArguments(parsed)
                 guard words.count == 1 else { throw SmithError.usage("usage: \(spec.usage)") }
                 let workspace = Workspace(configuration: configuration)
+                // A misspelled --lang must fail the run rather than compare
+                // nothing and report clean, which is the failure mode this tool
+                // exists to complain about in other people's tooling.
+                for catalog in workspace.allCatalogs() {
+                    _ = try workspace.languages(for: catalog, requested: requested)
+                }
                 guard let root = Git.repositoryRoot(of: configuration.root) else {
                     throw SmithError.usage("\(configuration.root) is not inside a git repository")
                 }
@@ -216,7 +233,7 @@ func run() -> Int32 {
             }
             return emit(
                 report,
-                format: try CommandLineParser.format(parsed),
+                format: format,
                 configuration: configuration,
                 text: renderer.render(report),
                 strict: strict
@@ -316,7 +333,7 @@ func run() -> Int32 {
             let report = try command.run(bundlePath: bundle)
             return emit(
                 report,
-                format: try CommandLineParser.format(parsed),
+                format: format,
                 configuration: configuration,
                 text: renderer.render(report),
                 strict: strict

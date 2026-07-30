@@ -9,68 +9,68 @@ import Foundation
 /// `scan`, and `[Character].contains("import XCTest")` runs a generic
 /// grapheme-by-grapheme searcher. Both become integer work here.
 public enum ByteScan {
-    /// Stands in for any character that is not a single ASCII scalar. It is
-    /// never equal to a delimiter, and the parsers treat it as an identifier
-    /// character — which is what `Character.isLetter` reported for it.
+    /// The first byte value that cannot be ASCII. Every byte at or above it is
+    /// part of a multi-byte UTF-8 character, which the parsers treat as an
+    /// identifier character and never as a delimiter.
     public static let nonASCII: UInt8 = 0x80
 
-    /// One byte per element of `code`, so offsets stay interchangeable with the
-    /// `[Character]` array the values are still read from.
+    /// Literal substring search over a raw buffer.
     ///
-    /// `Character.asciiValue` already reports a CR-LF pair as `\n`, so a file
-    /// with Windows line endings — one `Character`, two scalars — is not
-    /// mistaken for non-ASCII.
-    public static func bytes(of code: [Character]) -> [UInt8] {
-        var result = [UInt8](repeating: nonASCII, count: code.count)
-        result.withUnsafeMutableBufferPointer { buffer in
-            for index in code.indices {
-                let character = code[index]
-                if let ascii = character.asciiValue {
-                    buffer[index] = ascii
-                } else if character.isNewline {
-                    buffer[index] = 0x0A
-                } else if character.isWhitespace {
-                    // A non-breaking or ideographic space still has to trim
-                    // away, since the parsers ask whether a span is blank.
-                    buffer[index] = 0x20
-                }
-            }
-        }
-        return result
-    }
-
-    /// Literal substring search, skipping ahead on the first byte.
-    public static func contains(_ needle: [UInt8], in haystack: [UInt8]) -> Bool {
-        firstIndex(of: needle, in: haystack, from: 0) != nil
-    }
-
-    public static func firstIndex(of needle: [UInt8], in haystack: [UInt8], from: Int) -> Int? {
-        guard let first = needle.first, needle.count <= haystack.count else {
-            return needle.isEmpty ? from : nil
-        }
+    /// `memchr` does the skipping — it is vectorised in libc, and a plain
+    /// byte-at-a-time loop over the same data is several times slower. Looking
+    /// for a few hundred catalog keys in a thousand source files makes this the
+    /// innermost loop of the orphan check.
+    public static func firstIndex(
+        of needle: UnsafeBufferPointer<UInt8>,
+        in haystack: UnsafeBufferPointer<UInt8>,
+        from: Int
+    ) -> Int? {
+        guard let first = needle.first else { return max(from, 0) }
+        guard let base = haystack.baseAddress, needle.count <= haystack.count else { return nil }
+        var start = max(from, 0)
         let last = haystack.count - needle.count
-        return haystack.withUnsafeBufferPointer { hay -> Int? in
-            needle.withUnsafeBufferPointer { pattern -> Int? in
-                var start = max(from, 0)
-                while start <= last {
-                    guard let offset = hay[start...last].firstIndex(of: first) else { return nil }
-                    var step = 1
-                    while step < pattern.count, hay[offset + step] == pattern[step] { step += 1 }
-                    if step == pattern.count { return offset }
-                    start = offset + 1
-                }
-                return nil
-            }
+        while start <= last {
+            guard let hit = memchr(base + start, Int32(first), last - start + 1) else { return nil }
+            let offset = UnsafePointer(hit.assumingMemoryBound(to: UInt8.self)) - base
+            var step = 1
+            while step < needle.count, base[offset + step] == needle[step] { step += 1 }
+            if step == needle.count { return offset }
+            start = offset + 1
+        }
+        return nil
+    }
+
+    public static func contains(_ needle: [UInt8], in haystack: UnsafeBufferPointer<UInt8>) -> Bool {
+        needle.withUnsafeBufferPointer { firstIndex(of: $0, in: haystack, from: 0) != nil }
+    }
+
+    public static func contains(_ needle: [UInt8], in haystack: [UInt8]) -> Bool {
+        haystack.withUnsafeBufferPointer { hay in
+            needle.withUnsafeBufferPointer { firstIndex(of: $0, in: hay, from: 0) != nil }
+        }
+    }
+
+    /// The same search confined to one line, for use as a cheap gate in front
+    /// of a regex that cannot possibly match without this word present.
+    public static func contains(_ needle: [UInt8], in haystack: [UInt8], range: Range<Int>) -> Bool {
+        haystack.withUnsafeBufferPointer { hay in
+            guard let base = hay.baseAddress else { return needle.isEmpty }
+            let slice = UnsafeBufferPointer(start: base + range.lowerBound, count: range.count)
+            return needle.withUnsafeBufferPointer { firstIndex(of: $0, in: slice, from: 0) != nil }
         }
     }
 
     /// Every offset at which `needle` occurs.
     public static func occurrences(of needle: [UInt8], in haystack: [UInt8]) -> [Int] {
         var found: [Int] = []
-        var from = 0
-        while let index = firstIndex(of: needle, in: haystack, from: from) {
-            found.append(index)
-            from = index + 1
+        haystack.withUnsafeBufferPointer { hay in
+            needle.withUnsafeBufferPointer { pattern in
+                var from = 0
+                while let index = firstIndex(of: pattern, in: hay, from: from) {
+                    found.append(index)
+                    from = index + 1
+                }
+            }
         }
         return found
     }

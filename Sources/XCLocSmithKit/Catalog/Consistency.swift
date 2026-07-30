@@ -91,18 +91,26 @@ public enum Consistency {
         languages: [String],
         ignored: Set<String> = []
     ) -> [DuplicateSource] {
-        var byText: [String: [String]] = [:]
+        var byText: [String: [(key: String, text: String)]] = [:]
         for key in catalog.keys {
             guard catalog.shouldTranslate(key) else { continue }
             guard catalog.extractionState(key) != .stale else { continue }
-            guard let text = catalog.displayText(key, catalog.sourceLanguage) else { continue }
-            guard text.count > 1, KeyHeuristics.isTranslatable(text) else { continue }
-            byText[text, default: []].append(key)
+            // In a literal-keyed catalog the key *is* the source string and no
+            // source-language unit is written; `check`'s coverage already reads
+            // it that way. Without the fallback, a literal "Remove" and an
+            // identifier key whose English is "Remove" can never meet.
+            let text = catalog.displayText(key, catalog.sourceLanguage) ?? key
+            let folded = foldedSourceText(text)
+            guard folded.count > 1, KeyHeuristics.isTranslatable(folded) else { continue }
+            byText[folded, default: []].append((key, text))
         }
 
         var results: [DuplicateSource] = []
-        for (text, unsorted) in byText where unsorted.count > 1 {
-            let keys = unsorted.sorted()
+        for (_, members) in byText where members.count > 1 {
+            let sorted = members.sorted { $0.key < $1.key }
+            let keys = sorted.map(\.key)
+            // The folded form found the group; the text as entered names it.
+            let text = sorted[0].text
             // A pair the project has already looked at and kept stays quiet.
             // Requiring *every* pair to be listed means adding one member to a
             // group brings the group back, which is the right way round.
@@ -133,6 +141,27 @@ public enum Consistency {
         }
     }
 
+    /// Source texts that differ only typographically are one string entered
+    /// twice. "Apply " with a trailing space, "Don\u{2019}t" with a curly
+    /// apostrophe against "Don't" with a straight one, a no-break space for a
+    /// plain one — each is the same English to everyone except an exact match,
+    /// and the short ones ("Apply") are below the near-duplicate pass's length
+    /// floor, so nothing else would ever surface them. Grouping compares this
+    /// folded form; reports show the text as it was entered.
+    ///
+    /// Canonically-equivalent sequences (NFC vs NFD) need no handling here:
+    /// Swift string equality already treats them as equal.
+    static func foldedSourceText(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(trimmed.map { character in
+            switch character {
+            case "\u{00A0}", "\u{202F}": return " " as Character     // no-break spaces
+            case "\u{2018}", "\u{2019}": return "'" as Character     // curly apostrophes
+            default: return character
+            }
+        })
+    }
+
     private static func allPairsIgnored(_ keys: [String], _ ignored: Set<String>) -> Bool {
         guard !ignored.isEmpty else { return false }
         for (index, a) in keys.enumerated() {
@@ -154,7 +183,10 @@ public enum Consistency {
         var violations: [GlossaryViolation] = []
 
         for key in keys {
-            guard let source = catalog.displayText(key, catalog.sourceLanguage) else { continue }
+            // Literal-keyed catalogs carry no source-language unit: the key is
+            // the source string. Skipping them left the glossary silently dead
+            // on every catalog keyed by its English.
+            let source = catalog.displayText(key, catalog.sourceLanguage) ?? key
             let applicable = glossary.terms.keys.filter { contains(term: $0, in: source) }
             guard !applicable.isEmpty else { continue }
 
@@ -217,14 +249,22 @@ public enum Consistency {
     private static func isUnsegmented(_ scalar: Unicode.Scalar) -> Bool {
         switch scalar.value {
         case 0x0E00...0x0E7F,     // Thai
+             0x0E80...0x0EFF,     // Lao
              0x0F00...0x0FFF,     // Tibetan
+             0x1000...0x109F,     // Myanmar
+             0x1100...0x11FF,     // Hangul jamo (NFD-decomposed syllables)
              0x1780...0x17FF,     // Khmer
              0x3040...0x30FF,     // hiragana and katakana
+             0x3130...0x318F,     // Hangul compatibility jamo
+             0x31F0...0x31FF,     // katakana phonetic extensions
              0x3400...0x4DBF,     // CJK unified ideographs extension A
              0x4E00...0x9FFF,     // CJK unified ideographs
              0xA960...0xA97F,     // Hangul jamo extended A
+             0xA9E0...0xA9FF,     // Myanmar extended B
+             0xAA60...0xAA7F,     // Myanmar extended A
              0xAC00...0xD7FF,     // Hangul syllables
              0xF900...0xFAFF,     // CJK compatibility ideographs
+             0xFF66...0xFF9F,     // halfwidth katakana
              0x20000...0x3FFFF:   // CJK ideograph extensions B onward
             return true
         default:

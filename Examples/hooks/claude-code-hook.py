@@ -41,6 +41,11 @@ import sys
 BLOCK = 2
 PASS = 0
 LIMIT = 20
+# A hook that hangs blocks every Write. `scan` on a huge project takes tens of
+# seconds; anything past this is wrong (the classic case: no configuration
+# anywhere up the tree, so project discovery walks the entire disk) and the
+# work matters more than the finding.
+TIMEOUT_SECONDS = 60
 
 
 def run(arguments):
@@ -51,11 +56,20 @@ def run(arguments):
         # must not stop it working.
         print("xclocsmith is not on PATH; skipping.", file=sys.stderr)
         return None
-    finished = subprocess.run(
-        [executable] + arguments + ["--json"],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        finished = subprocess.run(
+            [executable] + arguments + ["--json"],
+            capture_output=True,
+            text=True,
+            timeout=TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        print(
+            f"xclocsmith {' '.join(arguments)} took over {TIMEOUT_SECONDS}s; skipping. "
+            "(No .xclocsmith.json found up the tree makes discovery walk the whole disk.)",
+            file=sys.stderr,
+        )
+        return None
     try:
         return json.loads(finished.stdout)
     except json.JSONDecodeError:
@@ -81,6 +95,11 @@ def catalog_findings(path):
         return []
 
     findings = []
+    # A catalog that fails to parse arrives here, not as a finding: `check`
+    # reports it as a diagnostic and analyzes nothing. Broken JSON is the one
+    # defect most worth handing back, since the agent just wrote it.
+    for diagnostic in report.get("diagnostics", []):
+        findings.append(f"{diagnostic['path']}: {diagnostic['message']}")
     for catalog in report.get("catalogs", []):
         for mismatch in catalog.get("formatMismatches", []):
             findings.append(

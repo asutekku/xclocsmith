@@ -131,21 +131,21 @@ agent hands back — including flagging units marked as machine-translated.
 ## Results on real projects
 
 Nine open-source apps, `init && check && scan` with no hand-written config —
-8,077 keys, 70 locales, 6,368 Swift files.
+8,077 keys, 70 locales, 6,373 Swift files.
 
-| Project | Catalogs · keys · locales | Broken format strings | Missing plural forms | Translated two ways | Duplicate strings | Unlocalized in code |
-|---|---|---:|---:|---:|---|---:|
-| [Whisky](https://github.com/Whisky-App/Whisky) | 1 · 152 · 21 | 0 | 0 | **5** | 10 | 0 |
-| [Loop](https://github.com/MrKai77/Loop) | 1 · 404 · 13 | 0 | 0 | **3** | 9 (+3 case) | 0 |
-| [NetNewsWire](https://github.com/Ranchero-Software/NetNewsWire) | 9 · 472 · 1 | 0 | 0 | 0 | 0 (+4 case) | 85 |
-| [IceCubesApp](https://github.com/Dimillian/IceCubesApp) | 1 · 733 · 18 | **2** | **89** | **55** | 88 | 47 |
-| [Mastodon for iOS](https://github.com/mastodon/mastodon-ios) | 9 · 980 · 53 | **9** | **53** | 0 | 122 | 27 |
-| [HSTracker](https://github.com/HearthSim/HSTracker) | 23 · 777 · 13 | 0 | 0 | **5** | 64 (+1 case) | 10 |
-| [Nimble Commander](https://github.com/mikekazakov/nimble-commander) | 54 · 1322 · 1 | 0 | **1** | **5** | 330 (+2 case) | 0 † |
-| [GoMap](https://github.com/bryceco/GoMap) | 15 · 761 · 33 | **4** | **150** | **25** | 76 (+3 case) | 10 |
-| [DuckDuckGo](https://github.com/duckduckgo/apple-browsers) | 19 · 2476 · 26 | **20** | **48** | **22** | 339 | 166 |
+| Project | Catalogs · keys · locales | Broken format strings | Missing plural forms | Translated two ways | Hygiene | Duplicate strings ‡ | Unlocalized in code |
+|---|---|---:|---:|---:|---:|---|---:|
+| [Whisky](https://github.com/Whisky-App/Whisky) | 1 · 152 · 21 | 0 | 0 | **5** | **3** / 50 | 10 | 0 |
+| [Loop](https://github.com/MrKai77/Loop) | 1 · 404 · 13 | 0 | 0 | **3** | **100** / 230 | 9 (+3 case) | 0 |
+| [NetNewsWire](https://github.com/Ranchero-Software/NetNewsWire) | 9 · 472 · 1 | 0 | 0 | 0 | 0 | 0 (+4 case) | 85 |
+| [IceCubesApp](https://github.com/Dimillian/IceCubesApp) | 1 · 733 · 18 | **2** | **89** | **62** | **12** / 175 | 95 | 47 |
+| [Mastodon for iOS](https://github.com/mastodon/mastodon-ios) | 9 · 980 · 53 | **9** | **53** | 0 | **66** / 271 | 122 | 27 |
+| [HSTracker](https://github.com/HearthSim/HSTracker) | 23 · 777 · 13 | 0 | 0 | **5** | **2** / 45 | 64 (+1 case) | 10 |
+| [Nimble Commander](https://github.com/mikekazakov/nimble-commander) | 54 · 1322 · 1 | 0 | **1** | **5** | **1** / 66 | 332 (+2 case) | 0 † |
+| [GoMap](https://github.com/bryceco/GoMap) | 15 · 761 · 33 | **4** | **150** | **28** | **14** / 80 | 79 (+3 case) | 10 |
+| [DuckDuckGo](https://github.com/duckduckgo/apple-browsers) | 19 · 2476 · 26 | **20** | **48** | **25** | **82** / 172 | 352 | 166 |
 
-**Bold** ships as a user-visible bug. Mastodon's Albanian `"Option %ld"` is
+**Bold** ships as a user-visible bug; the hygiene column reads *failing / total*. Mastodon's Albanian `"Option %ld"` is
 translated `"%ld nga %ld"`, which reads a second argument the call never
 supplies. GoMap's Arabic translator pasted the *description* of a string into
 two of its plural forms, and the count went with it. Whisky renders one of its
@@ -161,8 +161,20 @@ changed to `"%lld posts"` and whose Belarusian still reads `"%lld people
 talking"` — state `translated`, and detectable only beside its twin. Mastodon's
 122 duplicates all agree, because its translation memory propagates them.
 
+The hygiene column is the newest, and the failing half of it is mostly one
+thing: a translator writing a placeholder instead of a translation. Whisky ships
+`config.notAvailable` as the literal string "N/A" in Czech, French and Romanian;
+Loop's Arabic and Flemish write "-" for sixty strings nobody has reached yet.
+Both read as translated in Xcode. The rest of that column is punctuation,
+whitespace and Unicode — advisory, and loud on any catalog with history behind
+it, which is why it does not fail a build.
+
 Whisky and Loop genuinely have no unlocalized strings, and the tool finds none
 across their 213 files. No false positives padding the column.
+
+‡ "Duplicate strings" is exact duplicate groups *plus* near-duplicate pairs, so
+it includes the "translated two ways" column rather than sitting beside it. For
+Nimble Commander it is 260 near-duplicates and 72 exact groups.
 
 Reproduce it with [`Scripts/corpus.sh`](Scripts/corpus.sh), which clones the
 nine at the commits these numbers were measured against and prints the table.
@@ -172,9 +184,9 @@ so its zero means `scan` had almost nothing to read — `check` is fully
 meaningful there, `scan` is not. Objective-C sources are not scanned at all;
 that is the largest gap in this tool today.
 
-`check` runs in under a second on all nine, DuckDuckGo's 2,476 keys across 19
-catalogs included. `scan` is under five seconds everywhere except DuckDuckGo,
-whose 3,196 Swift files take 44s.
+`check` runs in under a second on eight of the nine; DuckDuckGo's 2,476 keys
+across 19 catalogs take 1.6s. `scan` reads DuckDuckGo's 3,196 Swift files in
+2.6s.
 
 ## Contents
 
@@ -334,6 +346,31 @@ back, because the third key has not been reviewed.
 **Near-duplicates and case variants.** Compared on the *strings*, not the keys,
 so a project that keys by identifier gets a real answer rather than a list of
 every sibling in every namespace.
+
+**Translation hygiene** — the mechanical comparison every translation-management
+system runs and no build step does. Punctuation that disagrees with the source,
+leading and trailing space, line-break counts, invisible characters, broken
+Markdown, French non-breaking spaces, and a dash or a "TODO" standing in for a
+translation nobody wrote:
+
+```
+  FAIL  translation hygiene (3):
+    placeholder-translation (3) — a placeholder where a translation should be:
+      - [cs] "config.notAvailable": the translation is "N/A", which is a note to self, not a translation
+      - [fr] "config.notAvailable": the translation is "N/A", which is a note to self, not a translation
+      - [ro] "config.notAvailable": the translation is "N/A", which is a note to self, not a translation
+```
+
+Punctuation is compared by class rather than by character, so `。`, `؟`, `：` and
+`።` satisfy their Latin equivalents and Greek `;` answers an English `?`.
+Zero-width joiners are left alone — Persian and the Indic scripts need them, and
+so does every multi-part emoji. Reduplicating languages are exempt from the
+doubled-word rule, because Vietnamese "luôn luôn" is a word.
+
+Two of the rules are about the string *you* wrote rather than the translation:
+`...` where the typographic ellipsis belongs, and two or more specifiers with no
+argument position, which no translation can reorder — write `%1$@`, `%2$@` and a
+German translator can put them where German needs them.
 
 **Glossary terms**, if you declare any. Unlike everything above, this one fails
 rather than advises, because a glossary is a decision you wrote down:
@@ -682,11 +719,10 @@ xclocsmith scan --files Sources/SessionView.swift
 xclocsmith check Resources/Localizable.xcstrings
 ```
 
-`check` on a single catalog takes well under a second on every project in the
-table above, so it is cheap enough to run on every save. `scan` reads the whole
-project either way: a few hundred files is a second or two, DuckDuckGo's 3,196
-is 44s. Below a few thousand files, run it per edit; above that, run it once
-when you are done.
+Both are cheap enough to run on every save. `check` on a single catalog is well
+under a second on every project in the table above. `scan` reads the whole
+project either way — that is the point — and still takes 2.6s on DuckDuckGo's
+3,196 Swift files.
 
 Two ready hooks are in [`Examples/hooks/`](Examples/hooks):
 

@@ -52,9 +52,6 @@ public struct LiteralContext: Equatable, Sendable {
 /// Resolves each literal to its enclosing call by parsing the argument list
 /// forward from the opening parenthesis.
 public struct CallSiteAnalyzer {
-    /// Kept only for reading text back out; every comparison goes through
-    /// `bytes`, which is the same length and indexed identically.
-    private let code: [Character]
     private let bytes: [UInt8]
     private var siteCache: [Int: CallSite] = [:]
 
@@ -69,12 +66,16 @@ public struct CallSiteAnalyzer {
     private static let equals: UInt8 = 0x3D
     private static let dot: UInt8 = 0x2E
     private static let plus: UInt8 = 0x2B
-    private static let underscore: UInt8 = 0x5F
 
-    public init(code: [Character], bytes: [UInt8]) {
-        self.code = code
+    public init(bytes: [UInt8]) {
         self.bytes = bytes
         self.enclosing = Self.openerTable(bytes)
+    }
+
+    /// The text of a byte range. Every range handed here starts and ends on an
+    /// ASCII delimiter or an identifier boundary, so it is UTF-8 aligned.
+    private func string(_ range: Range<Int>) -> String {
+        String(decoding: bytes[range], as: UTF8.self)
     }
 
     public mutating func context(for literal: SourceLiteral) -> LiteralContext {
@@ -160,7 +161,7 @@ public struct CallSiteAnalyzer {
         // Only a member access is an assignment to a view's text. `let title =
         // "…"` is a local constant, and every Swift file is full of those.
         guard probe >= 0, bytes[probe] == Self.dot else { return nil }
-        return String(code[(probe + 1)...end])
+        return string((probe + 1)..<(end + 1))
     }
 
     /// `=!<>+-*/%` — an `=` preceded by one of these is a comparison or a
@@ -184,7 +185,7 @@ public struct CallSiteAnalyzer {
     }
 
     private func text(in range: Range<Int>) -> String {
-        String(code[range.clamped(to: 0..<code.count)]).trimmingCharacters(in: .whitespacesAndNewlines)
+        string(range.clamped(to: 0..<bytes.count)).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// True when the argument contains nothing but this literal.
@@ -215,7 +216,7 @@ public struct CallSiteAnalyzer {
         let start = probe
         while probe < bytes.count, ByteScan.isIdentifier(bytes[probe]) { probe += 1 }
         guard probe > start else { return nil }
-        return String(code[start..<probe])
+        return string(start..<probe)
     }
 
     private func isConcatenated(_ literal: SourceLiteral) -> Bool {
@@ -320,7 +321,7 @@ public struct CallSiteAnalyzer {
             return CallArgument(label: nil, range: range)
         }
         // `::` does not occur in Swift, but a `?:` would already have failed above.
-        let label = String(code[identifierStart..<identifierEnd])
+        let label = string(identifierStart..<identifierEnd)
         return CallArgument(label: label, range: (cursor + 1)..<range.upperBound)
     }
 
@@ -332,7 +333,7 @@ public struct CallSiteAnalyzer {
         var start = end
         while start >= 0, ByteScan.isIdentifier(bytes[start]) { start -= 1 }
         guard end > start else { return nil }
-        let name = String(code[(start + 1)...end])
+        let name = string((start + 1)..<(end + 1))
         let isMethod = start >= 0 && bytes[start] == Self.dot
         return (name, isMethod)
     }

@@ -143,6 +143,10 @@ public struct ScanCommand {
         // one entry. Without this, a project whose source tree belongs to ten
         // inferred targets asked the same question ten times.
         var resolutionCache: [String: Resolution] = [:]
+        // Which catalogs a table reaches depends on the target and the table,
+        // never on the string. Asking per string rebuilt the project's whole
+        // catalog list twenty-five thousand times.
+        var reachableCache: [String: [Catalog]] = [:]
 
         // Each file is visited once per target that compiles it, because the
         // catalogs it may reach differ. Findings are keyed by file and line, so
@@ -166,7 +170,17 @@ public struct ScanCommand {
                         // Resolve the table the call asked for. A key in
                         // Errors.xcstrings does not satisfy a lookup in
                         // Localizable.xcstrings.
-                        let reachable = workspace.catalogs(for: found.table, reachableFrom: target)
+                        // Keyed by the target's own name, not by `targetKey`:
+                        // an inferred target lists its own catalogs first, so
+                        // two of them reach the same set in a different order.
+                        let tableKey = "\(target.name)\u{1}\(table)"
+                        let reachable: [Catalog]
+                        if let cached = reachableCache[tableKey] {
+                            reachable = cached
+                        } else {
+                            reachable = workspace.catalogs(for: found.table, reachableFrom: target)
+                            reachableCache[tableKey] = reachable
+                        }
                         if reachable.isEmpty {
                             resolution = .noSuchTable
                         } else {
@@ -363,15 +377,64 @@ public struct ScanCommand {
             var catalog: Catalog
             var referenced = Set<String>()
             var patterns = Set<String>()
-            var searchRoots: [String] = []
-            var searchedSwift: [AnalyzedSource] = []
+            var searchRoots = Set<String>()
+            /// Names the Swift file list this catalog is checked against, so
+            /// catalogs sharing one list can share the pass over it.
+            var searchedSwift: String?
         }
         var byCatalog: [String: Accumulator] = [:]
+        var swiftLists: [String: [AnalyzedSource]] = [:]
         var globalReferenced = Set<String>()
         var globalPatterns = Set<String>()
         var globalSwift: [AnalyzedSource] = []
 
-        for (target, files) in perTarget {
+        // Reference sources are analyzed once per file and unioned once per
+        // directory set. All twelve of DuckDuckGo's inferred targets name
+        // `iOS`, so doing this inside the loop below read the same two thousand
+        // files twelve times over — a third of the whole command, on one core.
+        struct References {
+            var referenced = Set<String>()
+            var patterns = Set<String>()
+        }
+        let rootsKeys = perTarget.map { $0.target.referenceSources.joined(separator: "\u{1}") }
+        var filesByRoots: [String: [AnalyzedSource]] = [:]
+        for (index, entry) in perTarget.enumerated() where filesByRoots[rootsKeys[index]] == nil {
+            filesByRoots[rootsKeys[index]] = workspace.sources(in: entry.target.referenceSources)
+        }
+        var distinctReferences: [AnalyzedSource] = []
+        var seenPaths = Set<String>()
+        for key in filesByRoots.keys.sorted() {
+            for file in filesByRoots[key] ?? [] where seenPaths.insert(file.path).inserted {
+                distinctReferences.append(file)
+            }
+        }
+        let referenceResults = parallelMap(distinctReferences) { file in
+            SourceAnalyzer.analyze(
+                file: file,
+                discovered: DiscoveredLocalizables(),
+                options: workspace.configuration.classifierOptions,
+                includePreviews: true,
+                ignoredStrings: []
+            )
+        }
+        var referenceAnalyzed: [String: SourceScanResult] = [:]
+        referenceAnalyzed.reserveCapacity(distinctReferences.count)
+        for (file, result) in zip(distinctReferences, referenceResults) {
+            referenceAnalyzed[file.path] = result
+        }
+        var referencesByRoots: [String: References] = [:]
+        for key in filesByRoots.keys.sorted() {
+            var union = References()
+            for file in filesByRoots[key] ?? [] {
+                guard let result = referenceAnalyzed[file.path] else { continue }
+                union.referenced.formUnion(result.referencedValues)
+                union.patterns.formUnion(result.formatPatterns)
+            }
+            referencesByRoots[key] = union
+        }
+
+        for (index, entry) in perTarget.enumerated() {
+            let (target, files) = entry
             var referenced = Set<String>()
             var patterns = Set<String>()
             for file in files {
@@ -379,16 +442,9 @@ public struct ScanCommand {
                 referenced.formUnion(result.referencedValues)
                 patterns.formUnion(result.formatPatterns)
             }
-            for file in workspace.sources(in: target.referenceSources) {
-                let result = SourceAnalyzer.analyze(
-                    file: file,
-                    discovered: DiscoveredLocalizables(),
-                    options: workspace.configuration.classifierOptions,
-                    includePreviews: true,
-                    ignoredStrings: []
-                )
-                referenced.formUnion(result.referencedValues)
-                patterns.formUnion(result.formatPatterns)
+            if let union = referencesByRoots[rootsKeys[index]] {
+                referenced.formUnion(union.referenced)
+                patterns.formUnion(union.patterns)
             }
 
             for catalog in workspace.catalogs(for: target) {
@@ -396,8 +452,14 @@ public struct ScanCommand {
                 var accumulator = byCatalog[catalog.path] ?? Accumulator(catalog: catalog)
                 accumulator.referenced.formUnion(referenced)
                 accumulator.patterns.formUnion(patterns)
-                accumulator.searchRoots.append(contentsOf: target.sources + target.referenceSources)
-                if accumulator.searchedSwift.isEmpty { accumulator.searchedSwift = files }
+                accumulator.searchRoots.formUnion(target.sources + target.referenceSources)
+                // Only a non-empty list counts, so a target that compiles
+                // nothing does not deny the catalog the evidence of one that
+                // does.
+                if accumulator.searchedSwift == nil, !files.isEmpty {
+                    accumulator.searchedSwift = target.name
+                    swiftLists[target.name] = files
+                }
                 byCatalog[catalog.path] = accumulator
             }
             if target.inferred {
@@ -411,23 +473,43 @@ public struct ScanCommand {
         // HSTracker keeps its catalogs under `Translations/` and its code
         // elsewhere, so evidence gathered from the code never reached them and
         // 350 live keys were offered for deletion. Pool it.
+        let pooledSwiftKey = "\u{1}pooled"
         if workspace.targets.allSatisfy(\.inferred) {
+            swiftLists[pooledSwiftKey] = globalSwift
             for path in byCatalog.keys {
                 byCatalog[path]?.referenced.formUnion(globalReferenced)
                 byCatalog[path]?.patterns.formUnion(globalPatterns)
-                if byCatalog[path]?.searchedSwift.isEmpty == true {
-                    byCatalog[path]?.searchedSwift = globalSwift
+                if byCatalog[path]?.searchedSwift == nil {
+                    byCatalog[path]?.searchedSwift = globalSwift.isEmpty ? nil : pooledSwiftKey
                 }
             }
         }
 
-        var findings: [OrphanFinding] = []
-        for path in byCatalog.keys.sorted() {
+        // Every catalog in a project whose targets were inferred is handed the
+        // same pooled patterns, so compiling them per catalog compiled the same
+        // few thousand regexes nineteen times on DuckDuckGo.
+        var compiledCache: [String: NSRegularExpression?] = [:]
+        func compile(_ patterns: Set<String>) -> [NSRegularExpression] {
+            patterns.compactMap { pattern in
+                if let cached = compiledCache[pattern] { return cached }
+                let regex = try? NSRegularExpression(pattern: "^" + pattern + "$")
+                compiledCache[pattern] = regex
+                return regex
+            }
+        }
+
+        // Candidates for every catalog first, so the project's XIBs and plists
+        // can be read once for all of them rather than once each.
+        let orderedPaths = byCatalog.keys.sorted()
+        struct Candidate {
+            let key: String
+            let bytes: [UInt8]
+        }
+        var candidatesByCatalog: [String: [Candidate]] = [:]
+        for path in orderedPaths {
             guard let accumulator = byCatalog[path] else { continue }
             let catalog = accumulator.catalog
-            let compiled = accumulator.patterns.compactMap {
-                try? NSRegularExpression(pattern: "^" + $0 + "$")
-            }
+            let compiled = compile(accumulator.patterns)
 
             var candidates: [String] = []
             for key in catalog.keys {
@@ -446,62 +528,96 @@ public struct ScanCommand {
                 if matched { continue }
                 candidates.append(key)
             }
+            // Encoded once here, not once per file: the search below asks the
+            // same question of a key thousands of times, and re-encoding it
+            // every time was most of what the orphan check cost on a project
+            // with many catalogs.
+            candidatesByCatalog[path] = candidates.map { Candidate(key: $0, bytes: $0.scanBytes) }
+        }
 
-            if !candidates.isEmpty {
-                let otherFiles = FileCollector.files(
-                    in: Array(Set(accumulator.searchRoots)).sorted(),
-                    configuration: workspace.configuration,
-                    extensions: workspace.configuration.referenceExtensions
-                )
-                // `String.contains` goes through Foundation's canonical,
-                // locale-aware search, which is grapheme-by-grapheme. Looking
-                // for a few hundred keys in a project's XIBs and plists that
-                // way dominated the whole command — four minutes of GoMap's
-                // four and a half. A literal byte search asks the same
-                // question: is this exact key mentioned anywhere.
-                for filePath in otherFiles {
-                    guard !candidates.isEmpty else { break }
-                    guard let text = try? String(contentsOfFile: filePath, encoding: .utf8) else { continue }
-                    let haystack = Array(text.utf8)
-                    candidates = candidates.filter { !containsBytes(of: $0, in: haystack) }
+        // Catalogs that search the same roots read those files together.
+        // Nineteen catalogs over three directories otherwise read the whole
+        // non-Swift side of the project nineteen times.
+        var byRoots: [String: (roots: [String], catalogs: [String])] = [:]
+        for path in orderedPaths {
+            guard let roots = byCatalog[path]?.searchRoots.sorted() else { continue }
+            let key = roots.joined(separator: "\u{1}")
+            byRoots[key, default: (roots, [])].catalogs.append(path)
+        }
+        for rootsKey in byRoots.keys.sorted() {
+            guard let group = byRoots[rootsKey] else { continue }
+            var live = group.catalogs.filter { !(candidatesByCatalog[$0]?.isEmpty ?? true) }
+            guard !live.isEmpty else { continue }
+            let otherFiles = workspace.files(
+                in: group.roots,
+                extensions: workspace.configuration.referenceExtensions
+            )
+            // `String.contains` goes through Foundation's canonical,
+            // locale-aware search, which is grapheme-by-grapheme. Looking for a
+            // few hundred keys in a project's XIBs and plists that way
+            // dominated the whole command — four minutes of GoMap's four and a
+            // half. A literal byte search asks the same question: is this exact
+            // key mentioned anywhere.
+            for filePath in otherFiles {
+                guard !live.isEmpty else { break }
+                guard let text = try? String(contentsOfFile: filePath, encoding: .utf8) else { continue }
+                var contents = text
+                contents.withUTF8 { haystack in
+                    for path in live {
+                        candidatesByCatalog[path] = candidatesByCatalog[path]?
+                            .filter { !ByteScan.contains($0.bytes, in: haystack) }
+                    }
                 }
+                live = live.filter { !(candidatesByCatalog[$0]?.isEmpty ?? true) }
             }
+        }
 
-            // Last check: the Swift text itself. Deleting a key is
-            // irreversible, so a key mentioned anywhere in the code is kept
-            // even when the classifier could not attribute it — a
-            // `["save", "cancel"].map(localize)` table, a `#if os(macOS)`
-            // branch, an idiom this tool has never seen. Being wrong here
-            // costs a translator's work; being conservative costs one line of
-            // advisory output.
-            if !candidates.isEmpty {
-                for file in accumulator.searchedSwift {
-                    guard !candidates.isEmpty else { break }
-                    let haystack = Array(file.text.utf8)
-                    candidates = candidates.filter { !containsBytes(of: $0, in: haystack) }
+        // Last check: the Swift text itself. Deleting a key is irreversible,
+        // so a key mentioned anywhere in the code is kept even when the
+        // classifier could not attribute it — a `["save", "cancel"].map(localize)`
+        // table, a `#if os(macOS)` branch, an idiom this tool has never seen.
+        // Being wrong here costs a translator's work; being conservative costs
+        // one line of advisory output.
+        //
+        // Grouped the same way, and for the same reason: HSTracker's
+        // twenty-three catalogs are all checked against the one pooled file
+        // list, and walking it per catalog was seven eighths of its runtime.
+        var bySwiftList: [String: [String]] = [:]
+        for path in orderedPaths {
+            guard let key = byCatalog[path]?.searchedSwift else { continue }
+            bySwiftList[key, default: []].append(path)
+        }
+        for listKey in bySwiftList.keys.sorted() {
+            guard let group = bySwiftList[listKey] else { continue }
+            var live = group.filter { !(candidatesByCatalog[$0]?.isEmpty ?? true) }
+            for file in swiftLists[listKey] ?? [] {
+                guard !live.isEmpty else { break }
+                let filter = { (haystack: UnsafeBufferPointer<UInt8>) in
+                    for path in live {
+                        candidatesByCatalog[path] = candidatesByCatalog[path]?
+                            .filter { !ByteScan.contains($0.bytes, in: haystack) }
+                    }
                 }
+                // Contiguous for anything this tool read itself; the fallback
+                // matters because skipping a file here would offer a live key
+                // for deletion.
+                if file.text.utf8.withContiguousStorageIfAvailable(filter) == nil {
+                    Array(file.text.utf8).withUnsafeBufferPointer(filter)
+                }
+                live = live.filter { !(candidatesByCatalog[$0]?.isEmpty ?? true) }
             }
-            if !candidates.isEmpty {
-                findings.append(OrphanFinding(catalog: catalog.displayPath, keys: candidates.sorted()))
-            }
+        }
+
+        var findings: [OrphanFinding] = []
+        for path in orderedPaths {
+            guard let catalog = byCatalog[path]?.catalog,
+                  let candidates = candidatesByCatalog[path], !candidates.isEmpty else { continue }
+            findings.append(OrphanFinding(
+                catalog: catalog.displayPath,
+                keys: candidates.map(\.key).sorted()
+            ))
         }
         return findings
-    }
-
-    /// Literal substring search over UTF-8, skipping ahead on the first byte.
-    private func containsBytes(of needle: String, in haystack: [UInt8]) -> Bool {
-        let pattern = Array(needle.utf8)
-        guard let first = pattern.first, pattern.count <= haystack.count else {
-            return pattern.isEmpty
-        }
-        let last = haystack.count - pattern.count
-        var start = 0
-        while start <= last {
-            guard let offset = haystack[start...last].firstIndex(of: first) else { return false }
-            if Array(haystack[offset..<(offset + pattern.count)]) == pattern { return true }
-            start = offset + 1
-        }
-        return false
     }
 
     private func writeTemplates(for report: ScanReport) throws -> [String] {

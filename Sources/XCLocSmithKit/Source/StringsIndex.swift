@@ -37,6 +37,9 @@ public struct StringsIndex: Sendable {
         var index = StringsIndex()
         guard let enumerator = FileManager.default.enumerator(atPath: root) else { return index }
 
+        // The walk has to be sequential — it is what decides where not to
+        // descend — but reading and parsing the files it turns up does not.
+        var found: [(table: String, path: String)] = []
         while let relative = enumerator.nextObject() as? String {
             let components = relative.split(separator: "/").map(String.init)
             if let last = components.last,
@@ -51,11 +54,19 @@ public struct StringsIndex: Sendable {
             guard StringsIndex.isBaseLanguage(language) else { continue }
 
             let path = URL(fileURLWithPath: root).appendingPathComponent(relative).path
-            guard !configuration.isExcluded(path),
-                  let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+            guard !configuration.isExcluded(path) else { continue }
+            found.append((String(components[components.count - 1].dropLast(".strings".count)), path))
+        }
 
-            let table = String(components[components.count - 1].dropLast(".strings".count))
-            index.keysByTable[table, default: []].formUnion(StringsFile.keys(in: text))
+        // Merged in walk order, so the index does not depend on which core
+        // finished first.
+        let parsed = parallelMap(found) { entry -> Set<String>? in
+            guard let text = try? String(contentsOfFile: entry.path, encoding: .utf8) else { return nil }
+            return StringsFile.keys(in: text)
+        }
+        for (entry, keys) in zip(found, parsed) {
+            guard let keys else { continue }
+            index.keysByTable[entry.table, default: []].formUnion(keys)
             index.fileCount += 1
         }
         return index

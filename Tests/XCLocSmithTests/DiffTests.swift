@@ -147,6 +147,80 @@ final class DiffTests: XCTestCase {
         XCTAssertEqual(change.after, "Desktop")
     }
 
+    /// A `shouldTranslate: false` key's translations are not expected to track
+    /// the source; flagging them sends someone to write translations the
+    /// project has decided not to have.
+    func testADoNotTranslateKeyIsNotAStrandedTranslation() throws {
+        let entry: (String) -> JSONValue = { english in
+            .object([
+                "shouldTranslate": .bool(false),
+                "localizations": .object([
+                    "en": self.unit(english),
+                    "de": self.unit("Alte Fassung"),
+                ]),
+            ])
+        }
+        let before = catalog(["legal.body": entry("Old text")])
+        let after = catalog(["legal.body": entry("New text")])
+
+        let diff = DiffCommand().run(before: before, after: after)
+        XCTAssertTrue(diff.sourceChanges.isEmpty)
+    }
+
+    /// Xcode is retiring a stale key; reconciling its translations is work on
+    /// a string that is about to be deleted.
+    func testAStaleKeyIsNotAStrandedTranslation() throws {
+        let entry: (String) -> JSONValue = { english in
+            .object([
+                "extractionState": .string("stale"),
+                "localizations": .object([
+                    "en": self.unit(english),
+                    "de": self.unit("Alte Fassung"),
+                ]),
+            ])
+        }
+        let before = catalog(["old.key": entry("Old text")])
+        let after = catalog(["old.key": entry("New text")])
+
+        let diff = DiffCommand().run(before: before, after: after)
+        XCTAssertTrue(diff.sourceChanges.isEmpty)
+    }
+
+    /// The words of a pluralised key live *inside* its substitution — the flat
+    /// value is just "%#@count@". A rewording there is precisely the change
+    /// this command exists to catch, and comparing only the top-level
+    /// variations misses it entirely.
+    func testASourceChangeInsideASubstitutionIsFound() throws {
+        let stringUnit: (String) -> JSONValue = {
+            .object(["state": .string("translated"), "value": .string($0)])
+        }
+        let entry: (String) -> JSONValue = { other in
+            .object(["localizations": .object([
+                "en": .object([
+                    "stringUnit": stringUnit("%#@count@"),
+                    "substitutions": .object(["count": .object([
+                        "argNum": .number("1"),
+                        "formatSpecifier": .string("lld"),
+                        "variations": .object(["plural": .object([
+                            "one": self.unit("%arg post"),
+                            "other": self.unit(other),
+                        ])]),
+                    ])]),
+                ]),
+                "de": self.unit("%#@count@"),
+            ])])
+        }
+        let before = catalog(["posts %lld": entry("%arg posts")])
+        let after = catalog(["posts %lld": entry("%arg boosts")])
+
+        let diff = DiffCommand().run(before: before, after: after)
+        XCTAssertEqual(diff.sourceChanges.count, 1)
+        let change = try XCTUnwrap(diff.sourceChanges.first)
+        XCTAssertEqual(change.variation, "substitutions.count.plural.other")
+        XCTAssertEqual(change.before, "%arg posts")
+        XCTAssertEqual(change.after, "%arg boosts")
+    }
+
     func testASourceLanguageChangeIsReported() throws {
         let before = try Catalog(
             path: root.appendingPathComponent("a.xcstrings").path,
@@ -247,6 +321,39 @@ final class DiffTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(report.catalogs.first).isNew)
         XCTAssertEqual(try XCTUnwrap(report.catalogs.first).addedKeys, ["b.key"])
         XCTAssertEqual(report.failures, 0)
+    }
+
+    /// A catalog inside a nested repository sits under the outer root on disk
+    /// but in another history. `git show` fails for its path with the same
+    /// message a genuinely new file produces; reporting it as "new" would call
+    /// every key an addition and hide any stranded translation in its real
+    /// history.
+    func testACatalogInANestedRepositoryIsADiagnosticNotANewCatalog() throws {
+        try makeRepository()
+        let nested = root.appendingPathComponent("Vendored")
+        let path = nested.appendingPathComponent("Localizable.xcstrings")
+        try write(path, strings: ["v.key": localized(["en": "Vendored"])])
+        for arguments in [["init", "-q"]] {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["git", "-C", nested.path] + arguments
+            process.standardOutput = Pipe()
+            process.standardError = Pipe()
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { throw XCTSkip("git init failed") }
+        }
+
+        let catalog = try Catalog(path: path.path, displayPath: "Vendored/Localizable.xcstrings")
+        let report = try DiffCommand().run(
+            reference: "HEAD",
+            catalogs: [catalog],
+            repositoryRoot: root.path
+        )
+        XCTAssertTrue(report.catalogs.isEmpty)
+        XCTAssertEqual(report.diagnostics.count, 1)
+        let message = try XCTUnwrap(report.diagnostics.first).message
+        XCTAssertTrue(message.contains("nested git repository"), message)
     }
 
     // MARK: - Helpers

@@ -93,6 +93,31 @@ public struct TextRenderer {
                 }
             }
 
+            for failing in [true, false] {
+                let group = catalog.hygiene.filter { $0.isFailure == failing }
+                guard !group.isEmpty else { continue }
+                var byRule: [HygieneFinding.Rule: [HygieneFinding]] = [:]
+                for finding in group { byRule[finding.rule, default: []].append(finding) }
+                lines.append("")
+                lines.append(
+                    "  \(failing ? "FAIL" : "note")  translation hygiene (\(group.count)):"
+                )
+                // Grouped by rule, because a reader fixes one kind at a time and
+                // an interleaved list of thirteen kinds reads as noise.
+                for rule in HygieneFinding.Rule.allCases {
+                    guard let findings = byRule[rule] else { continue }
+                    lines.append("    \(rule.rawValue) (\(findings.count)) — \(rule.summary):")
+                    for finding in findings.prefix(5) {
+                        lines.append(
+                            "      - [\(finding.language)] \"\(escaped(finding.key))\": \(finding.detail)"
+                        )
+                    }
+                    if findings.count > 5 {
+                        lines.append("      … and \(findings.count - 5) more")
+                    }
+                }
+            }
+
             let breaking = catalog.caseDuplicates.filter(\.breaksSymbolGeneration)
             if !breaking.isEmpty {
                 lines.append("")

@@ -42,6 +42,12 @@ public struct DiffCommand {
         }
 
         for key in new.intersection(old).sorted() {
+            // A key the project has opted out of translating has translations
+            // that are not expected to track the source; a stale key is one
+            // Xcode is already retiring. Flagging either sends someone to
+            // reconcile translations nobody should be writing.
+            guard after.shouldTranslate(key) else { continue }
+            guard after.extractionState(key) != .stale else { continue }
             // Compared over every variation, not over one display string. A key
             // varying by device holds four values at once, and reducing it to
             // one both misses three of them and — before `displayText` was made
@@ -111,6 +117,20 @@ public struct DiffCommand {
                 report.diagnostics.append(DiagnosticError(
                     path: catalog.displayPath,
                     message: "is outside the git repository at \(root)"
+                ))
+                continue
+            }
+            // A catalog inside a submodule sits under this root on disk but in
+            // another repository's history. `git show` fails for its path with
+            // the same message a genuinely new file produces, so without this
+            // check the catalog reports as "new" — every key an addition, and
+            // any stranded translation in its real history invisible.
+            let directory = URL(fileURLWithPath: catalog.path).deletingLastPathComponent().path
+            if let ownRoot = Git.root(of: directory),
+               URL(fileURLWithPath: ownRoot).resolvingSymlinksInPath().path != root {
+                report.diagnostics.append(DiagnosticError(
+                    path: catalog.displayPath,
+                    message: "is in a nested git repository (\(ownRoot)); run diff from there"
                 ))
                 continue
             }

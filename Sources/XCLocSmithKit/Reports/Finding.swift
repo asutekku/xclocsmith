@@ -139,6 +139,16 @@ extension CheckReport {
                 ))
             }
 
+            for finding in catalog.hygiene {
+                findings.append(Finding(
+                    rule: finding.rule.rawValue,
+                    level: finding.isFailure ? .error : .warning,
+                    message: "[\(finding.language)] \"\(finding.key)\": \(finding.detail)",
+                    file: file,
+                    key: finding.key
+                ))
+            }
+
             for duplicate in catalog.caseDuplicates {
                 findings.append(Finding(
                     rule: duplicate.breaksSymbolGeneration ? "case-collision" : "case-variant",

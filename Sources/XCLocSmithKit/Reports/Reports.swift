@@ -99,6 +99,9 @@ public struct CatalogReport: Equatable, Sendable {
     public let similarKeys: [SimilarPair]
     public let duplicateSources: [DuplicateSource]
     public let glossaryViolations: [GlossaryViolation]
+    /// Mechanical defects found by comparing each translation against its
+    /// source: punctuation, whitespace, invisible characters, broken markup.
+    public let hygiene: [HygieneFinding]
     public let pluralGaps: [PluralGap]
     public let formatMismatches: [FormatMismatch]
     /// Keys the source language pluralises, so a template can ask for the
@@ -147,6 +150,15 @@ public struct CatalogReport: Equatable, Sendable {
                             }),
                         ])
                     }),
+                ])
+            }),
+            "hygiene": .array(hygiene.map { finding in
+                .object([
+                    "rule": .string(finding.rule.rawValue),
+                    "key": .string(finding.key),
+                    "language": .string(finding.language),
+                    "detail": .string(finding.detail),
+                    "isFailure": .bool(finding.isFailure),
                 ])
             }),
             "glossaryViolations": .array(glossaryViolations.map { violation in
@@ -199,6 +211,7 @@ public struct CheckReport: Report {
             // A glossary is opt-in, so a violation is a decision the project
             // wrote down and a translation broke.
             total += catalog.glossaryViolations.count
+            total += catalog.hygiene.filter(\.isFailure).count
         }
         return total
     }
@@ -213,6 +226,7 @@ public struct CheckReport: Report {
                 // `--strict` promotes them for anyone who wants the ratchet.
                 + catalog.duplicateSources.count
                 + catalog.caseDuplicates.filter { !$0.breaksSymbolGeneration }.count
+                + catalog.hygiene.filter { !$0.isFailure }.count
                 + catalog.coverage.reduce(0) { $0 + $1.needsReview.count + $1.identicalToSource.count }
                 + catalog.staleKeys.count
         }

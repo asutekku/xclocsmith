@@ -46,63 +46,106 @@ enum LocalizableDiscovery {
     )
 
     /// Scans the comment-stripped code of every file.
+    ///
+    /// Each file's declarations depend on nothing outside it, so the files are
+    /// read across cores and merged in file order — the result does not depend
+    /// on which core finished first.
     static func discover(in files: [AnalyzedSource]) -> DiscoveredLocalizables {
         var result = DiscoveredLocalizables()
-        result.localizedFunctions = localizedFunctions(in: files)
+        for partial in parallelMap(files, declarations(in:)) {
+            for (parameter, types) in partial.parameterOwners {
+                result.parameterOwners[parameter, default: []].formUnion(types)
+            }
+            result.initializerTypes.formUnion(partial.initializerTypes)
+            result.declaredTypes.formUnion(partial.declaredTypes)
+            result.localizedFunctions.formUnion(partial.localizedFunctions)
+        }
+        return result
+    }
 
-        for file in files {
-            let code = String(file.lexed.code)
-            var currentType: String?
-            var typeDepth = 0
-            var depth = 0
-            var stringProperties = Set<String>()
-            var localizedProperties = Set<String>()
-            var localizedArguments = Set<String>()
-            var unlabelledFirstParameters = Set<String>()
+    /// What one file contributes. `localizedFunctions` is gathered in the same
+    /// pass rather than in a second one over the same lines.
+    private struct FileDeclarations {
+        var parameterOwners: [String: Set<String>] = [:]
+        var initializerTypes: Set<String> = []
+        var declaredTypes: Set<String> = []
+        var localizedFunctions: Set<String> = []
+    }
 
-            func flush() {
-                guard let type = currentType else { return }
-                let localizable = stringProperties
-                    .intersection(localizedArguments)
-                    .union(localizedProperties)
-                for parameter in localizable {
-                    result.parameterOwners[parameter, default: []].insert(type)
-                }
-                if !unlabelledFirstParameters.isDisjoint(with: localizable) {
-                    result.initializerTypes.insert(type)
-                }
-                stringProperties.removeAll()
-                localizedProperties.removeAll()
-                localizedArguments.removeAll()
-                unlabelledFirstParameters.removeAll()
-                currentType = nil
+    /// Words without which the corresponding pattern cannot match. Running ICU
+    /// over every line of a project this size dominated discovery; a literal
+    /// byte search rejects nearly all of them first.
+    private static let typeKeywords = ["struct", "class", "actor", "enum", "extension"].map(\.scanBytes)
+    private static let stringWord = "String".scanBytes
+    private static let localizedWord = "LocalizedString".scanBytes
+    private static let initWord = "init(".scanBytes
+    private static let funcWord = "func".scanBytes
+
+    private static func declarations(in file: AnalyzedSource) -> FileDeclarations {
+        var result = FileDeclarations()
+        let bytes = file.lexed.bytes
+        let (lines, ranges) = codeLines(of: bytes)
+
+        var currentType: String?
+        var typeDepth = 0
+        var depth = 0
+        var stringProperties = Set<String>()
+        var localizedProperties = Set<String>()
+        var localizedArguments = Set<String>()
+        var unlabelledFirstParameters = Set<String>()
+
+        func flush() {
+            guard let type = currentType else { return }
+            let localizable = stringProperties
+                .intersection(localizedArguments)
+                .union(localizedProperties)
+            for parameter in localizable {
+                result.parameterOwners[parameter, default: []].insert(type)
+            }
+            if !unlabelledFirstParameters.isDisjoint(with: localizable) {
+                result.initializerTypes.insert(type)
+            }
+            stringProperties.removeAll()
+            localizedProperties.removeAll()
+            localizedArguments.removeAll()
+            unlabelledFirstParameters.removeAll()
+            currentType = nil
+        }
+
+        for (index, line) in lines.enumerated() {
+            let span = ranges[index]
+            let range = NSRange(line.startIndex..., in: line)
+
+            if typeKeywords.contains(where: { ByteScan.contains($0, in: bytes, range: span) }),
+               let match = typeDeclaration.firstMatch(in: line, range: range),
+               let nameRange = Range(match.range(at: 1), in: line) {
+                flush()
+                let name = String(line[nameRange])
+                currentType = name
+                result.declaredTypes.insert(name)
+                typeDepth = depth
             }
 
-            for line in splitLines(code) {
-                let range = NSRange(line.startIndex..., in: line)
+            if ByteScan.contains(funcWord, in: bytes, range: span) {
+                localizedFunction(at: index, line: line, range: range, lines: lines, into: &result)
+            }
 
-                if let match = typeDeclaration.firstMatch(in: line, range: range),
-                   let nameRange = Range(match.range(at: 1), in: line) {
-                    flush()
-                    let name = String(line[nameRange])
-                    currentType = name
-                    result.declaredTypes.insert(name)
-                    typeDepth = depth
+            for offset in span {
+                if bytes[offset] == openBrace { depth += 1 }
+                if bytes[offset] == closeBrace {
+                    depth -= 1
+                    if currentType != nil && depth <= typeDepth { flush() }
                 }
+            }
 
-                for character in line {
-                    if character == "{" { depth += 1 }
-                    if character == "}" {
-                        depth -= 1
-                        if currentType != nil && depth <= typeDepth { flush() }
-                    }
-                }
+            guard currentType != nil else { continue }
 
-                guard currentType != nil else { continue }
-
+            if ByteScan.contains(stringWord, in: bytes, range: span) {
                 for match in stringProperty.matches(in: line, range: range) {
                     if let r = Range(match.range(at: 1), in: line) { stringProperties.insert(String(line[r])) }
                 }
+            }
+            if ByteScan.contains(localizedWord, in: bytes, range: span) {
                 for match in localizedProperty.matches(in: line, range: range) {
                     if let r = Range(match.range(at: 1), in: line) { localizedProperties.insert(String(line[r])) }
                 }
@@ -112,15 +155,42 @@ enum LocalizableDiscovery {
                     if let first = components.first { localizedArguments.insert(first) }
                     if let last = components.last { localizedArguments.insert(last) }
                 }
+            }
+            if ByteScan.contains(initWord, in: bytes, range: span) {
                 for match in unlabelledInit.matches(in: line, range: range) {
                     if let r = Range(match.range(at: 1), in: line) {
                         unlabelledFirstParameters.insert(String(line[r]))
                     }
                 }
             }
-            flush()
         }
+        flush()
         return result
+    }
+
+    private static let openBrace: UInt8 = 0x7B
+    private static let closeBrace: UInt8 = 0x7D
+
+    /// The lines of the comment-stripped code, each with the byte range it
+    /// occupies. Building the whole file as one `String` and then walking it a
+    /// `Character` at a time was most of what discovery cost.
+    private static func codeLines(of bytes: [UInt8]) -> ([String], [Range<Int>]) {
+        var lines: [String] = []
+        var ranges: [Range<Int>] = []
+        var start = 0
+        var index = 0
+        while index < bytes.count {
+            guard ByteScan.isNewline(bytes[index]) else { index += 1; continue }
+            lines.append(String(decoding: bytes[start..<index], as: UTF8.self))
+            ranges.append(start..<index)
+            // `\r\n` is one break, so a file with Windows line endings does not
+            // gain an empty line between every pair.
+            index += (bytes[index] == 0x0D && index + 1 < bytes.count && bytes[index + 1] == 0x0A) ? 2 : 1
+            start = index
+        }
+        lines.append(String(decoding: bytes[start...], as: UTF8.self))
+        ranges.append(start..<bytes.count)
+        return (lines, ranges)
     }
 
     /// Functions the project defines that localize their first argument.
@@ -135,35 +205,42 @@ enum LocalizableDiscovery {
     /// merely *called* `localize` proves nothing.
     static func localizedFunctions(in files: [AnalyzedSource]) -> Set<String> {
         var found: Set<String> = []
-
-        for file in files {
-            let lines = splitLines(String(file.lexed.code))
-            for (index, line) in lines.enumerated() {
-                let range = NSRange(line.startIndex..., in: line)
-                guard let match = functionDeclaration.firstMatch(in: line, range: range),
-                      let nameRange = Range(match.range(at: 1), in: line),
-                      let parameterRange = Range(match.range(at: 2), in: line) else { continue }
-                let name = String(line[nameRange])
-                let parameter = String(line[parameterRange])
-                guard !found.contains(name) else { continue }
-
-                // The body, bounded by brace depth from the declaration.
-                var depth = 0
-                var started = false
-                for bodyLine in lines[index...] {
-                    for character in bodyLine {
-                        if character == "{" { depth += 1; started = true }
-                        if character == "}" { depth -= 1 }
-                    }
-                    if passesToLocalizationAPI(parameter, in: bodyLine) {
-                        found.insert(name)
-                        break
-                    }
-                    if started && depth <= 0 { break }
-                }
-            }
+        for partial in parallelMap(files, declarations(in:)) {
+            found.formUnion(partial.localizedFunctions)
         }
         return found
+    }
+
+    /// One `func` line: if it declares a `String` first parameter that the body
+    /// hands to a real localization API, the function's name is recorded.
+    private static func localizedFunction(
+        at index: Int,
+        line: String,
+        range: NSRange,
+        lines: [String],
+        into result: inout FileDeclarations
+    ) {
+        guard let match = functionDeclaration.firstMatch(in: line, range: range),
+              let nameRange = Range(match.range(at: 1), in: line),
+              let parameterRange = Range(match.range(at: 2), in: line) else { return }
+        let name = String(line[nameRange])
+        guard !result.localizedFunctions.contains(name) else { return }
+        let parameter = String(line[parameterRange])
+
+        // The body, bounded by brace depth from the declaration.
+        var depth = 0
+        var started = false
+        for bodyLine in lines[index...] {
+            for character in bodyLine {
+                if character == "{" { depth += 1; started = true }
+                if character == "}" { depth -= 1 }
+            }
+            if passesToLocalizationAPI(parameter, in: bodyLine) {
+                result.localizedFunctions.insert(name)
+                return
+            }
+            if started && depth <= 0 { return }
+        }
     }
 
     private static func passesToLocalizationAPI(_ parameter: String, in line: String) -> Bool {
@@ -182,7 +259,7 @@ enum LocalizableDiscovery {
     static func localizedPropertyNames(in files: [AnalyzedSource]) -> Set<String> {
         var names = Set<String>()
         for file in files {
-            let code = String(file.lexed.code)
+            let code = String(decoding: file.lexed.bytes, as: UTF8.self)
             let range = NSRange(code.startIndex..., in: code)
             for match in localizedProperty.matches(in: code, range: range) {
                 if let r = Range(match.range(at: 1), in: code) { names.insert(String(code[r])) }

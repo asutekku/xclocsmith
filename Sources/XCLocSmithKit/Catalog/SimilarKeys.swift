@@ -64,8 +64,8 @@ public enum SimilarKeys {
                 && entry.text.count >= 6
                 && !FormatSpecifierScanner.containsSpecifier(entry.text)
         }
-        var candidates: [(key: String, text: String, chars: [Character])] =
-            usable.map { ($0.key, $0.text, Array($0.text.lowercased())) }
+        var candidates: [(key: String, text: String, chars: [Character], folded: String)] =
+            usable.map { ($0.key, $0.text, Array($0.text.lowercased()), Consistency.foldedSourceText($0.text)) }
         candidates.sort { left, right in
             left.chars.count == right.chars.count ? left.key < right.key : left.chars.count < right.chars.count
         }
@@ -81,8 +81,10 @@ public enum SimilarKeys {
                 if b.chars.count > longestComparable { break }   // sorted by length
                 // An exact match is `duplicateSources`' finding, and it reports
                 // it better: one group of n keys rather than n² pairs, with the
-                // languages that render them differently attached.
-                if a.text == b.text { continue }
+                // languages that render them differently attached. Folded, so a
+                // pair differing only by a trailing space or a curly apostrophe
+                // moves over with the rest of the exact matches.
+                if a.folded == b.folded { continue }
                 // Skip only when `caseDuplicates` will report the pair anyway.
                 // Two identifier keys whose English differs solely in case are
                 // not case-duplicate *keys*, so nothing else would catch them.

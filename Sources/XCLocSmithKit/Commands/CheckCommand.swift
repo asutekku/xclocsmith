@@ -89,6 +89,13 @@ public struct CheckCommand {
         return report
     }
 
+    private func dedupe(_ findings: [HygieneFinding]) -> [HygieneFinding] {
+        var seen = Set<String>()
+        return findings.filter {
+            seen.insert("\($0.rule.rawValue)\u{1}\($0.key)\u{1}\($0.language)").inserted
+        }
+    }
+
     private func analyze(_ catalog: Catalog) throws -> CatalogReport {
         let keys = catalog.keys.sorted()
         let languages = try workspace.languages(for: catalog, requested: options.languages)
@@ -117,6 +124,20 @@ public struct CheckCommand {
         var coverage: [LanguageCoverage] = []
         var pluralGaps: [PluralGap] = []
         var formatMismatches: [FormatMismatch] = []
+        var hygiene: [HygieneFinding] = []
+
+        // Source-side hygiene is about the English you wrote, so it is checked
+        // once per key rather than once per key per language.
+        for key in translatable {
+            // In a literal-keyed catalog the key is the English, and no
+            // source-language unit is written — the same fallback coverage uses.
+            let text = catalog.displayText(key, catalog.sourceLanguage) ?? key
+            hygiene.append(contentsOf: Hygiene.checkSource(
+                key: key,
+                source: text,
+                language: catalog.sourceLanguage
+            ))
+        }
 
         // A variation gap the source language shares is one defect in the
         // string, not one per language: a device variation with no `other` case
@@ -216,6 +237,25 @@ public struct CheckCommand {
                 if let value = catalog.value(key, language), value == sourceString, sourceString.count > 3 {
                     identical.append(key)
                 }
+                // Mechanical comparison against the source string: punctuation,
+                // spacing, invisible characters, broken markup. Compared on the
+                // text a user sees, so a plural is compared category by
+                // category rather than through one representative form.
+                let sourceEntriesForHygiene = catalog.signature(key, catalog.sourceLanguage)
+                for (path, translated) in catalog.signature(key, language).sorted(by: { $0.key < $1.key }) {
+                    guard let counterpart = sourceEntriesForHygiene[path]
+                        ?? (path.isEmpty ? sourceString : nil) else { continue }
+                    hygiene.append(contentsOf: Hygiene.check(
+                        key: key,
+                        source: counterpart,
+                        translation: translated,
+                        language: language
+                    ))
+                }
+                if let same = Hygiene.samePlurals(key: key, catalog: catalog, language: language) {
+                    hygiene.append(same)
+                }
+
                 let declaredSpecifiers = catalog.substitutionSpecifiers(key, language)
                 let sourceEntries = Dictionary(
                     catalog.comparableEntries(key, catalog.sourceLanguage),
@@ -311,6 +351,11 @@ public struct CheckCommand {
             similarKeys: similar,
             duplicateSources: duplicates,
             glossaryViolations: glossaryViolations,
+            // One finding per rule per key per language: a trailing space in
+            // both `plural.one` and `plural.other` is one defect to fix, and
+            // billing it per variation makes a six-category Arabic plural six
+            // times as loud as a flat string with the same problem.
+            hygiene: dedupe(hygiene),
             pluralGaps: pluralGaps,
             formatMismatches: formatMismatches,
             pluralisedKeys: pluralisedInSource.sorted()

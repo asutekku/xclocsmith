@@ -10,8 +10,13 @@ public struct AnalyzedSource {
     public init(path: String, displayPath: String, text: String) {
         self.path = path
         self.displayPath = displayPath
-        self.text = text
-        self.lexed = SwiftLexer.lex(text)
+        // Foundation can hand back a string that is not natively UTF-8, and
+        // then every byte-level search over it transcodes the whole file first.
+        // Done once here, on the thread that read the file.
+        var contiguous = text
+        contiguous.makeContiguousUTF8()
+        self.text = contiguous
+        self.lexed = SwiftLexer.lex(contiguous)
     }
 
     public static func load(path: String, displayPath: String) throws -> AnalyzedSource {
@@ -21,10 +26,27 @@ public struct AnalyzedSource {
         return AnalyzedSource(path: path, displayPath: displayPath, text: text)
     }
 
+    /// One line of the original text, for a report snippet.
+    ///
+    /// Walks to it rather than splitting the whole file, which was quadratic
+    /// over a file with many findings.
     public func line(_ number: Int) -> String {
-        let lines = splitLines(text)
-        guard number >= 1, number <= lines.count else { return "" }
-        return lines[number - 1].trimmingCharacters(in: .whitespaces)
+        guard number >= 1 else { return "" }
+        var current = 1
+        var start = text.startIndex
+        var index = text.startIndex
+        while index < text.endIndex {
+            if text[index].isNewline {
+                if current == number {
+                    return text[start..<index].trimmingCharacters(in: .whitespaces)
+                }
+                current += 1
+                start = text.index(after: index)
+            }
+            index = text.index(after: index)
+        }
+        guard current == number else { return "" }
+        return text[start...].trimmingCharacters(in: .whitespaces)
     }
 
     /// Test code, which is never localized.
@@ -110,7 +132,7 @@ public enum SourceAnalyzer {
         var result = SourceScanResult()
         guard !file.lexed.isFileIgnored else { return result }
 
-        var analyzer = CallSiteAnalyzer(code: file.lexed.code, bytes: file.lexed.bytes)
+        var analyzer = CallSiteAnalyzer(bytes: file.lexed.bytes)
         analyzer.literalsByStart = Dictionary(
             file.lexed.literals.map { ($0.start, $0) },
             uniquingKeysWith: { first, _ in first }

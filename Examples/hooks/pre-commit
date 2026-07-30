@@ -21,21 +21,38 @@ catalogs=$(printf '%s\n' "$staged" | grep '\.xcstrings$' || true)
 
 status=0
 
+# `git diff --name-only` is newline-delimited, so split on newlines only —
+# the default IFS would cut "Session View.swift" in half. Globbing is off for
+# the same reason: a path is a path, not a pattern.
+set -f
+IFS='
+'
+
 if [ -n "$swift" ]; then
     # One --files per path; the flag is repeatable.
     set --
     for file in $swift; do
         set -- "$@" --files "$file"
     done
-    xclocsmith scan "$@" || status=1
+    xclocsmith scan "$@" || status=$?
 fi
 
 if [ -n "$catalogs" ]; then
-    # shellcheck disable=SC2086
-    xclocsmith check $catalogs || status=1
+    set --
+    for file in $catalogs; do
+        set -- "$@" "$file"
+    done
+    xclocsmith check "$@" || status=$?
 fi
 
-if [ "$status" -ne 0 ]; then
+unset IFS
+set +f
+
+if [ "$status" -ge 2 ]; then
+    echo ""
+    echo "xclocsmith could not run (exit $status) — that is a configuration or I/O"
+    echo "problem, not a finding. Fix it, or commit with --no-verify."
+elif [ "$status" -ne 0 ]; then
     echo ""
     echo "Commit stopped by xclocsmith. Fix the findings, or commit with --no-verify."
 fi

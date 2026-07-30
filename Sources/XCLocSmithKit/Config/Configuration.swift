@@ -240,6 +240,12 @@ public struct Configuration {
             for (term, value) in terms {
                 // Skipping a malformed entry would leave the check silently
                 // doing nothing, which is the one outcome nobody would notice.
+                guard !term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw SmithError.invalidConfiguration(
+                        path: path,
+                        reason: "glossary terms must not be empty"
+                    )
+                }
                 guard let renderings = value.objectValue, !renderings.isEmpty else {
                     throw SmithError.invalidConfiguration(
                         path: path,
@@ -252,6 +258,14 @@ public struct Configuration {
                         throw SmithError.invalidConfiguration(
                             path: path,
                             reason: "glossary term \"\(term)\" has a non-string rendering for \(language)"
+                        )
+                    }
+                    // An empty rendering passes every `contains` check, which
+                    // disables the term for that language without a trace.
+                    guard !text.isEmpty else {
+                        throw SmithError.invalidConfiguration(
+                            path: path,
+                            reason: "glossary term \"\(term)\" has an empty rendering for \(language)"
                         )
                     }
                     byLanguage[language] = text

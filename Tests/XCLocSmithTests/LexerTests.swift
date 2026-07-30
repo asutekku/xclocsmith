@@ -106,10 +106,30 @@ final class LexerTests: XCTestCase {
     }
 
     /// The blanked code keeps the original offsets, which every context lookup
-    /// depends on.
+    /// depends on. Offsets are into the source's UTF-8, so a multi-byte
+    /// character occupies as many of them as it has bytes.
     func testBlankedCodeKeepsLength() {
         let source = "Text(\"emoji 🧖 here\") // comment\nlet x = 1\n"
         let lexed = SwiftLexer.lex(source)
-        XCTAssertEqual(lexed.code.count, Array(source).count)
+        XCTAssertEqual(lexed.bytes.count, source.utf8.count)
+    }
+
+    /// A literal's offsets have to land on the literal itself, or every parser
+    /// that reads around one is looking at the wrong place.
+    func testLiteralOffsetsAreUTF8() {
+        let source = "let 🧖 = 1\nText(\"Sauna\")\n"
+        let literal = try? XCTUnwrap(SwiftLexer.lex(source).literals.first)
+        guard let literal else { return }
+        let bytes = Array(source.utf8)
+        XCTAssertEqual(bytes[literal.start], UInt8(ascii: "\""))
+        XCTAssertEqual(bytes[literal.end - 1], UInt8(ascii: "\""))
+        XCTAssertEqual(literal.value, "Sauna")
+        XCTAssertEqual(literal.line, 2)
+    }
+
+    /// `\r\n` is one line break, not two.
+    func testWindowsLineEndingsCountOnce() {
+        let lexed = SwiftLexer.lex("let a = 1\r\nlet b = 2\r\nText(\"Hi\")\r\n")
+        XCTAssertEqual(lexed.literals.first?.line, 3)
     }
 }

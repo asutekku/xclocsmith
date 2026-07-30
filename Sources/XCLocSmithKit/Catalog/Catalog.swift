@@ -153,8 +153,35 @@ public struct Catalog {
     /// than "what does it say": a key with four device variations changes when
     /// any one of them does, and reducing it to a single display string both
     /// misses three of those and invents changes that did not happen.
+    ///
+    /// Substitution content is included, under `substitutions.<name>…` paths.
+    /// `comparableEntries` excludes it deliberately — a substitution's values
+    /// carry their own specifiers and must not be format-checked against the
+    /// key — but the words inside a `%#@count@` are source text like any other,
+    /// and a change to "%lld posts" living inside one is exactly the change
+    /// this comparison exists to catch.
     public func signature(_ key: String, _ language: String) -> [String: String] {
-        Dictionary(comparableEntries(key, language), uniquingKeysWith: { first, _ in first })
+        var signature = Dictionary(
+            comparableEntries(key, language).map { ($0.path, $0.value) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        func walk(_ value: JSONValue, path: String) {
+            guard case .object(let fields) = value else { return }
+            if let unit = fields["stringUnit"]?.objectValue, let text = unit["value"]?.stringValue {
+                if signature[path] == nil { signature[path] = text }
+            }
+            guard let variations = fields["variations"]?.objectValue else { return }
+            for (kind, cases) in variations {
+                guard let cases = cases.objectValue else { continue }
+                for (category, entry) in cases {
+                    walk(entry, path: "\(path).\(kind).\(category)")
+                }
+            }
+        }
+        for (name, substitution) in substitutions(key, language) {
+            walk(substitution, path: "substitutions.\(name)")
+        }
+        return signature
     }
 
     public func shape(_ key: String, _ language: String) -> LocalizationShape {

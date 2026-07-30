@@ -63,6 +63,26 @@ First release.
 - Catalog findings resolve to the line their key is declared on, so an
   annotation lands on the row rather than the top of the file.
 
+### Translation hygiene
+
+- Mechanical defects found by comparing each translation against its source:
+  punctuation that disagrees, leading and trailing space, double spaces, line
+  break counts, zero-width and byte-order marks, bidirectional overrides and
+  unclosed embeddings, U+FFFD, French non-breaking spaces, doubled words, broken
+  Markdown, dropped `^[…](inflect: true)` markup, and every plural category
+  filled with the same text.
+- A dash or a "TODO" standing in for a translation is reported as a placeholder
+  rather than as the punctuation defect it looks like. Whisky ships "N/A" in
+  three languages; Loop writes "-" for sixty strings.
+- Two source-side rules: `...` where the typographic ellipsis belongs, and two
+  or more specifiers with no argument position, which no translation can
+  reorder.
+- Punctuation is compared by class, not by character, so `。`, `؟`, `：` and `።`
+  satisfy their Latin equivalents and Greek `;` answers an English `?`.
+  Zero-width joiners are left alone because Persian and the Indic scripts need
+  them, and reduplicating languages are exempt from the doubled-word rule.
+- Findings that mean text was lost or markup broke fail; the rest advise.
+
 ### Reviewing
 
 - `diff` compares catalogs against a git ref, or two files against each other,

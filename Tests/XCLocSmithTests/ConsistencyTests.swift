@@ -216,6 +216,58 @@ final class ConsistencyTests: XCTestCase {
         XCTAssertEqual(duplicates[0].divergences.map(\.language), ["be"])
     }
 
+    /// A literal-keyed catalog writes no source-language unit — the key is the
+    /// English. A literal "Remove" and an identifier key whose English value is
+    /// "Remove" are the same string entered twice, and comparing only explicit
+    /// source values can never see the pair.
+    func testALiteralKeyAndAnIdentifierKeySharingEnglishAreGrouped() throws {
+        let catalog = try makeCatalog(strings: [
+            "Remove": localized(["ja": "削除"]),
+            "toolbar.remove": localized(["en": "Remove", "ja": "取り除く"]),
+        ])
+        let report = try check(catalog, languages: ["en", "ja"])
+        let duplicates = try XCTUnwrap(report.catalogs.first).duplicateSources
+
+        XCTAssertEqual(duplicates.count, 1)
+        XCTAssertEqual(duplicates[0].keys, ["Remove", "toolbar.remove"])
+        XCTAssertEqual(duplicates[0].divergences.map(\.language), ["ja"])
+    }
+
+    /// "Apply " with a trailing space is "Apply" to everyone but an exact
+    /// match — and at five characters both are below the near-duplicate pass's
+    /// length floor, so nothing else would ever surface the pair.
+    func testSourceTextsDifferingOnlyByTrailingWhitespaceAreGrouped() throws {
+        let catalog = try makeCatalog(strings: [
+            "a.apply": localized(["en": "Apply ", "de": "Anwenden"]),
+            "b.apply": localized(["en": "Apply", "de": "Übernehmen"]),
+        ])
+        let report = try check(catalog, languages: ["en", "de"])
+        let duplicates = try XCTUnwrap(report.catalogs.first).duplicateSources
+
+        XCTAssertEqual(duplicates.count, 1)
+        XCTAssertEqual(duplicates[0].keys, ["a.apply", "b.apply"])
+        XCTAssertEqual(duplicates[0].divergences.map(\.language), ["de"])
+    }
+
+    /// A curly apostrophe against a straight one, or a no-break space against a
+    /// plain one, is typography, not wording. The pair belongs here as one
+    /// group — and must leave the near-duplicate pass, which reported it as a
+    /// 90-something-percent lookalike.
+    func testTypographicVariantsAreGroupedAndLeaveTheNearDuplicatePass() throws {
+        let catalog = try makeCatalog(strings: [
+            "a.dont": localized(["en": "Don\u{2019}t Save", "de": "Nicht sichern"]),
+            "b.dont": localized(["en": "Don't Save", "de": "Nicht speichern"]),
+            "a.distance": localized(["en": "Distance\u{00A0}Traveled", "de": "Strecke A"]),
+            "b.distance": localized(["en": "Distance Traveled", "de": "Strecke B"]),
+        ])
+        let report = try check(catalog, languages: ["en", "de"])
+        let catalogReport = try XCTUnwrap(report.catalogs.first)
+
+        XCTAssertEqual(catalogReport.duplicateSources.count, 2)
+        XCTAssertTrue(catalogReport.duplicateSources.allSatisfy { !$0.divergences.isEmpty })
+        XCTAssertTrue(catalogReport.similarKeys.isEmpty)
+    }
+
     /// Groups that disagree are the ones somebody has to act on, so they lead.
     func testDivergentGroupsSortAboveAgreeingOnes() throws {
         let catalog = try makeCatalog(strings: [
@@ -313,6 +365,56 @@ final class ConsistencyTests: XCTestCase {
         XCTAssertTrue(Consistency.contains(term: "温泉", in: "新しい温泉セッション"))
         XCTAssertTrue(Consistency.contains(term: "Furolog", in: "Furologを開く"))
         XCTAssertTrue(Consistency.contains(term: "Furolog", in: "Furolog을 시작"))
+    }
+
+    /// A literal-keyed catalog has no explicit source values at all; the key is
+    /// the English. The glossary must read it that way or it never fires on the
+    /// very projects Xcode builds by default.
+    func testTheGlossaryAppliesToLiteralKeyedCatalogs() throws {
+        let catalog = try makeCatalog(strings: [
+            "New onsen session": localized(["ja": "新しいセッション"]),
+        ])
+        var configuration = baseConfiguration()
+        configuration.glossary = Glossary(terms: ["Onsen": ["ja": "温泉"]])
+        let report = try check(catalog, languages: ["ja"], configuration: configuration)
+        let violations = try XCTUnwrap(report.catalogs.first).glossaryViolations
+
+        XCTAssertEqual(violations.count, 1)
+        XCTAssertEqual(violations[0].key, "New onsen session")
+        XCTAssertEqual(violations[0].expected, "温泉")
+    }
+
+    /// Thai got a pass for not separating words; Lao, Myanmar, halfwidth
+    /// katakana and NFD-decomposed Hangul deserve the same one. Each is a
+    /// script whose letters sit flush against a name.
+    func testUnsegmentedScriptsBeyondTheCJKBlocksAreRecognised() throws {
+        // Lao: term inside a spaceless Lao sentence.
+        XCTAssertTrue(Consistency.contains(term: "ອາບນ້ຳ", in: "ຕັ້ງຄ່າອາບນ້ຳໃໝ່"))
+        // Lao and Myanmar letters attached straight onto a Latin name.
+        XCTAssertTrue(Consistency.contains(term: "Furolog", in: "ເປີດFurologໃນຕອນນີ້"))
+        XCTAssertTrue(Consistency.contains(term: "Furolog", in: "Furologကိုဖွင့်ပါ"))
+        // Halfwidth katakana.
+        XCTAssertTrue(Consistency.contains(term: "Furolog", in: "Furologｱﾌﾟﾘ"))
+        // Hangul syllables macOS has decomposed into jamo (NFD file names).
+        XCTAssertTrue(Consistency.contains(term: "Furolog", in: "Furolog\u{110B}\u{1173}\u{11AF}"))
+    }
+
+    /// An empty term can never match and an empty rendering always does; both
+    /// disable the check without a trace, so both are configuration errors.
+    func testEmptyGlossaryTermsAndRenderingsAreRejected() throws {
+        let path = root.appendingPathComponent(Configuration.fileName)
+
+        try #"{"glossary": {"": {"ja": "温泉"}}}"#.write(to: path, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(
+            try Configuration.load(explicitPath: path.path, useConfigFile: true, workingDirectory: root.path)
+        )
+
+        try #"{"glossary": {"Onsen": {"ja": ""}}}"#.write(to: path, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(
+            try Configuration.load(explicitPath: path.path, useConfigFile: true, workingDirectory: root.path)
+        ) { error in
+            XCTAssertTrue("\(error)".contains("empty rendering"), "\(error)")
+        }
     }
 
     /// A glossary is a set of decisions, and "furolog" is not the name of the

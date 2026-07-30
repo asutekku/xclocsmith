@@ -33,9 +33,19 @@ struct CatalogLineIndex {
     ///
     /// Anchored on the trailing `" : {` so a translation value never matches:
     /// `"value" : "Save"` ends in a string, and only a key opens an object.
-    private static func declaredKey(in line: Substring) -> String? {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard trimmed.hasPrefix("\""), trimmed.hasSuffix(" : {") else { return nil }
+    ///
+    /// Anchored on the *indent* too. Keys live exactly two levels deep —
+    /// `strings` → key — and the writer indents two spaces per level, so a key
+    /// line starts with exactly four spaces. Without that anchor, a key named
+    /// after a structural field or a language code resolves to the first
+    /// structural line that spells it: a key literally called "en" landed on
+    /// the `"en" : {` of a different key's localizations.
+    private static func declaredKey(in rawLine: Substring) -> String? {
+        var line = rawLine
+        if line.hasSuffix("\r") { line = line.dropLast() }   // CRLF tolerance
+        guard line.hasPrefix("    \""), !line.hasPrefix("     ") else { return nil }
+        let trimmed = line.dropFirst(4)
+        guard trimmed.hasSuffix(" : {") else { return nil }
         let body = trimmed.dropLast(4)
         guard body.hasSuffix("\""), body.count >= 2 else { return nil }
         return unescape(String(body.dropFirst().dropLast()))

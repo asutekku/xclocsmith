@@ -157,6 +157,79 @@ final class MachineFormatTests: XCTestCase {
         XCTAssertEqual(Set(keys.compactMap { index.line(of: $0) }).count, keys.count)
     }
 
+    /// A key named after a structural field or a language code must resolve to
+    /// its own declaration, not to the first structural line that spells it — a
+    /// key literally called "en" used to land on the `"en" : {` inside a
+    /// different key's localizations. Keys sit at exactly one indent level.
+    func testAKeyNamedLikeAStructuralFieldIsLocatedOnItsOwnLine() throws {
+        let catalog = try makeCatalog(strings: [
+            "app.first": localized(["en": "First"]),
+            "en": localized(["en": "English"]),
+            "localizations": localized(["en": "Localizations"]),
+        ])
+        let index = try XCTUnwrap(CatalogLineIndex(path: catalog.path))
+        let lines = try String(contentsOf: catalog, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+
+        for key in ["app.first", "en", "localizations"] {
+            let line = try XCTUnwrap(index.line(of: key), key)
+            XCTAssertTrue(
+                lines[line - 1].hasPrefix("    \"\(key)\""),
+                "\(key) resolved to: \(lines[line - 1])"
+            )
+        }
+    }
+
+    /// GitHub's ingestion requires `fullDescription.text` and `help.text` on
+    /// every rule, and refuses empty strings for required properties.
+    func testSarifRulesCarryTheDescriptionsGitHubRequires() throws {
+        let report = try check(try busyCatalog(), languages: ["en", "de", "ja"])
+        let text = MachineRenderer(configuration: baseConfiguration())
+            .sarif(report, toolVersion: "1")
+        let document = try JSONParser.parse(Data(text.utf8))
+        let rules = try XCTUnwrap(
+            document.objectValue?["runs"]?.arrayValue?.first?.objectValue?["tool"]?
+                .objectValue?["driver"]?.objectValue?["rules"]?.arrayValue
+        )
+        XCTAssertFalse(rules.isEmpty)
+        for rule in rules {
+            let fields = try XCTUnwrap(rule.objectValue)
+            for property in ["shortDescription", "fullDescription", "help"] {
+                let text = fields[property]?.objectValue?["text"]?.stringValue
+                XCTAssertNotEqual(text ?? "", "", "\(property) missing or empty")
+            }
+        }
+    }
+
+    /// The SARIF spec forbids `uriBaseId` beside an absolute URI, and a
+    /// relative reference must not start with "/". An absolute path — a catalog
+    /// outside the project, a bundle named absolutely — becomes a file: URI on
+    /// its own. Relative paths percent-encode into valid URI references.
+    func testUrisAreValidAndAbsolutePathsCarryNoBaseId() throws {
+        var report = CheckReport()
+        report.diagnostics = [
+            DiagnosticError(path: "/outside/My App/Localizable.xcstrings", message: "boom"),
+            DiagnosticError(path: "App Dir/Localizable.xcstrings", message: "boom"),
+        ]
+        let text = MachineRenderer(configuration: baseConfiguration()).sarif(report, toolVersion: "1")
+        let document = try JSONParser.parse(Data(text.utf8))
+        let results = try XCTUnwrap(
+            document.objectValue?["runs"]?.arrayValue?.first?.objectValue?["results"]?.arrayValue
+        )
+        let artifacts = try results.map {
+            try XCTUnwrap(
+                $0.objectValue?["locations"]?.arrayValue?.first?.objectValue?["physicalLocation"]?
+                    .objectValue?["artifactLocation"]?.objectValue
+            )
+        }
+        let absolute = try XCTUnwrap(artifacts.first { $0["uri"]?.stringValue?.hasPrefix("file://") == true })
+        XCTAssertEqual(absolute["uri"]?.stringValue, "file:///outside/My%20App/Localizable.xcstrings")
+        XCTAssertNil(absolute["uriBaseId"])
+        let relative = try XCTUnwrap(artifacts.first { $0["uri"]?.stringValue?.hasPrefix("file://") == false })
+        XCTAssertEqual(relative["uri"]?.stringValue, "App%20Dir/Localizable.xcstrings")
+        XCTAssertEqual(relative["uriBaseId"]?.stringValue, "%SRCROOT%")
+    }
+
     // MARK: - Format selection
 
     func testJsonAndFormatMustAgree() throws {

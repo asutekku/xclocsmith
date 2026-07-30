@@ -101,10 +101,17 @@ public struct MachineRenderer {
             ruleIDs.append(finding.rule)
         }
         let rules = ruleIDs.map { rule in
-            JSONValue.object([
+            // GitHub's SARIF ingestion marks `fullDescription.text` and
+            // `help.text` as required alongside `id` — the spec wants only the
+            // id — and refuses empty strings for required properties. One
+            // sentence serves all three rather than inventing three wordings.
+            let description = RuleCatalogue.description(of: rule)
+            return JSONValue.object([
                 "id": .string(rule),
                 "name": .string(rule),
-                "shortDescription": .object(["text": .string(RuleCatalogue.description(of: rule))]),
+                "shortDescription": .object(["text": .string(description)]),
+                "fullDescription": .object(["text": .string(description)]),
+                "help": .object(["text": .string(description)]),
                 "defaultConfiguration": .object([
                     "level": .string(RuleCatalogue.defaultLevel(of: rule)),
                 ]),
@@ -123,11 +130,21 @@ public struct MachineRenderer {
                 // SARIF regions are 1-based and a startLine of 0 is invalid, so
                 // a finding with no line carries no region at all.
                 if let line = finding.line, line > 0 { region["startLine"] = .number("\(line)") }
+                // The uri must be a valid RFC 3986 reference, so spaces and
+                // friends are percent-encoded. A repo-relative path pairs with
+                // %SRCROOT%; an absolute path (a catalog outside the project, a
+                // bundle named absolutely) becomes a file: URI instead — the
+                // spec forbids uriBaseId next to an absolute URI, and a
+                // relative reference is not allowed to start with "/".
+                let encoded = file.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? file
+                var artifact: [String: JSONValue]
+                if file.hasPrefix("/") {
+                    artifact = ["uri": .string("file://" + encoded)]
+                } else {
+                    artifact = ["uri": .string(encoded), "uriBaseId": .string("%SRCROOT%")]
+                }
                 var location: [String: JSONValue] = [
-                    "artifactLocation": .object([
-                        "uri": .string(file),
-                        "uriBaseId": .string("%SRCROOT%"),
-                    ]),
+                    "artifactLocation": .object(artifact),
                 ]
                 if !region.isEmpty { location["region"] = .object(region) }
                 fields["locations"] = .array([.object(["physicalLocation": .object(location)])])
@@ -177,6 +194,21 @@ enum RuleCatalogue {
         "machine-translated": ("An imported unit is machine translation.", "warning"),
         "missing-from-bundle": ("A catalog key the imported bundle never mentions.", "warning"),
         "bundle-metadata": ("An imported bundle's metadata is inconsistent.", "error"),
+        "end-punctuation": ("A translation ends in different punctuation from its source.", "warning"),
+        "edge-whitespace": ("Leading or trailing space that disagrees with the source.", "warning"),
+        "double-space": ("Two spaces in a row where the source has one.", "warning"),
+        "newline-count": ("A translation has a different number of line breaks from its source.", "error"),
+        "invisible-character": ("A translation contains an invisible character that breaks string comparison.", "error"),
+        "bidi-control": ("A translation contains a bidirectional override or an unclosed embedding.", "error"),
+        "replacement-character": ("A translation contains U+FFFD, so text was lost converting encodings.", "error"),
+        "punctuation-spacing": ("French punctuation without its non-breaking space.", "warning"),
+        "doubled-word": ("The same word twice in a row.", "warning"),
+        "markdown": ("A translation broke Markdown the source uses.", "error"),
+        "inflection-dropped": ("A translation dropped the grammar-agreement markup its source uses.", "error"),
+        "same-plurals": ("Every plural category filled with the same text.", "warning"),
+        "placeholder-translation": ("A dash or a note-to-self where a translation should be.", "error"),
+        "ellipsis-style": ("A source string uses three full stops where the typographic ellipsis belongs.", "warning"),
+        "unordered-specifiers": ("A source string has specifiers no translation can reorder.", "warning"),
         "configuration": ("A file could not be read, or the project is misconfigured.", "error"),
     ]
 

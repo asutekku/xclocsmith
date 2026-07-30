@@ -17,6 +17,8 @@ public final class Workspace {
 
     private var catalogCache: [String: Catalog] = [:]
     private var sourceCache: [String: AnalyzedSource] = [:]
+    private var sourceListCache: [String: [AnalyzedSource]] = [:]
+    private var fileListCache: [String: [String]] = [:]
 
     public init(configuration: Configuration) {
         self.configuration = configuration
@@ -89,22 +91,50 @@ public final class Workspace {
 
     // MARK: - Sources
 
+    /// The Swift files under these directories, read and lexed.
+    ///
+    /// Memoized by directory set as well as by file, because a project whose
+    /// targets were inferred asks the same question over and over: DuckDuckGo's
+    /// twelve targets name three directories between them, and walking those
+    /// trees again for each was a fifth of `scan`.
     public func sources(in directories: [String]) -> [AnalyzedSource] {
-        let paths = FileCollector.files(in: directories, configuration: configuration, extensions: ["swift"])
-        var result: [AnalyzedSource] = []
-        for path in paths {
-            if let cached = sourceCache[path] {
-                result.append(cached)
-                continue
+        let key = directories.joined(separator: "\u{1}")
+        if let cached = sourceListCache[key] { return cached }
+
+        let paths = files(in: directories, extensions: ["swift"])
+        // Reading and lexing a file depends on nothing but that file, so the
+        // ones not already in hand are done across cores. Failures are recorded
+        // afterwards, in path order, so diagnostics do not depend on timing.
+        let pending = paths.filter { sourceCache[$0] == nil }
+        if !pending.isEmpty {
+            let displayPaths = pending.map { configuration.display($0) }
+            let loaded = parallelMap(Array(pending.indices)) { index in
+                Result { try AnalyzedSource.load(path: pending[index], displayPath: displayPaths[index]) }
             }
-            do {
-                let source = try AnalyzedSource.load(path: path, displayPath: configuration.display(path))
-                sourceCache[path] = source
-                result.append(source)
-            } catch {
-                diagnostics.append(DiagnosticError(path: configuration.display(path), message: "\(error)"))
+            for (index, outcome) in loaded.enumerated() {
+                switch outcome {
+                case .success(let source):
+                    sourceCache[source.path] = source
+                case .failure(let error):
+                    diagnostics.append(DiagnosticError(path: displayPaths[index], message: "\(error)"))
+                }
             }
         }
+
+        let result = paths.compactMap { sourceCache[$0] }
+        sourceListCache[key] = result
+        return result
+    }
+
+    /// Paths under these directories, memoized. Walking a tree the size of
+    /// DuckDuckGo's takes long enough that asking twice is worth avoiding, and
+    /// the orphan check asks once per catalog for the same roots.
+    public func files(in directories: [String], extensions: Set<String>) -> [String] {
+        let key = directories.joined(separator: "\u{1}")
+            + "\u{2}" + extensions.sorted().joined(separator: "\u{1}")
+        if let cached = fileListCache[key] { return cached }
+        let result = FileCollector.files(in: directories, configuration: configuration, extensions: extensions)
+        fileListCache[key] = result
         return result
     }
 
@@ -120,6 +150,8 @@ public final class Workspace {
     public func invalidate() {
         catalogCache.removeAll()
         sourceCache.removeAll()
+        sourceListCache.removeAll()
+        fileListCache.removeAll()
     }
 
     // MARK: - Languages
