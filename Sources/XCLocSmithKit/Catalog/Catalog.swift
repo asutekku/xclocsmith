@@ -31,6 +31,14 @@ public struct Catalog {
         } catch {
             throw SmithError.cannotRead(path: displayPath ?? path, reason: error.localizedDescription)
         }
+        try self.init(data: data, path: resolved, displayPath: displayPath ?? path)
+    }
+
+    /// A catalog that is not on disk — a git blob being compared against the
+    /// working tree, say. `path` still names where it belongs, so findings can
+    /// point somewhere; nothing here writes.
+    public init(data: Data, path: String, displayPath: String? = nil) throws {
+        let resolved = path
 
         let document: JSONValue
         do {

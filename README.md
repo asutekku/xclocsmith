@@ -115,6 +115,9 @@ agent hands back — including flagging units marked as machine-translated.
   `String.localizedString("Add Card", comment: "")` are localization APIs if
   your project defines them — found by reading the function body, not by
   guessing from its name.
+- **Reviews a change, not just a state.** `diff <ref>` finds source strings that
+  moved while their translations stayed put — translations that still say
+  `translated` and now say the wrong thing.
 - **Edits without collateral damage.** Byte-identical to Xcode's own writer, so
   a one-key change is a one-line diff. Refuses to flatten plural variations or
   substitutions unless you ask.
@@ -181,6 +184,7 @@ whose 3,196 Swift files take 44s.
 - [Commands](#commands)
 - [Checking catalogs](#checking-catalogs)
 - [Scanning your source](#scanning-your-source)
+- [Reviewing a change](#reviewing-a-change)
 - [Editing catalogs](#editing-catalogs)
 - [Localization catalogs (`.xcloc`)](#localization-catalogs-xcloc)
 - [Configuration](#configuration)
@@ -417,6 +421,43 @@ it is mentioned anywhere in the Swift text, in a XIB, plist, storyboard,
 `InfoPlist.xcstrings` and `AppShortcuts.xcstrings` are exempt entirely, and so
 are Interface Builder keys like `3aJ-8X-AqP.title`, which name an object inside
 a nib and can never appear in code.
+
+## Reviewing a change
+
+```bash
+xclocsmith diff HEAD                       # every catalog, against a commit
+xclocsmith diff origin/main                # or any ref
+xclocsmith diff old.xcstrings new.xcstrings  # two files, no git involved
+```
+
+The finding this exists for is a **source string that changed while its
+translations did not**. Xcode marks a translation `needs_review` when *it*
+notices the source move — but only for edits made in its own editor. A string
+changed by a merge, a script, an `add`, or a hand edit leaves every translation
+underneath reading `translated` and saying the wrong thing.
+
+```
+App/Localizable.xcstrings  (~1 source)
+
+  FAIL  source changed, translations did not (1):
+    - "trending-tag-people-talking %lld"
+        was  "%lld people talking"
+        now  "%lld posts"
+        still the old text: be
+        updated: de
+    These say "translated" and say the wrong thing. Retranslate them,
+    or mark them needs_review with `set --state needs_review`.
+```
+
+`git diff` shows you the English line changing. It cannot tell you which of the
+nineteen translations below it were left behind — that is the same defect
+IceCubesApp ships today, found here at the commit that introduces it rather than
+years later.
+
+Added and removed keys are notes; only stranded translations fail. A catalog
+that did not exist at the reference is new, and none of it is an error — which
+holds only because the reference is verified first, since a mistyped ref would
+otherwise make every catalog look new and report nothing wrong.
 
 ## Editing catalogs
 

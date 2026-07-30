@@ -30,6 +30,9 @@ public struct LexedSource: Sendable {
     /// Same length as the input, with comments and literal bodies blanked to
     /// spaces. Offsets therefore map 1:1 back to the original text.
     public let code: [Character]
+    /// `code` one byte per element, for the parsers that only ever ask about
+    /// ASCII punctuation. See `ByteScan`.
+    public let bytes: [UInt8]
     public let literals: [SourceLiteral]
     public let ignoredLines: Set<Int>
     public let isFileIgnored: Bool
@@ -52,30 +55,35 @@ public enum SwiftLexer {
     public static func lex(_ text: String) -> LexedSource {
         var context = LexContext(text: text)
         context.run()
+        let bytes = ByteScan.bytes(of: context.code)
         return LexedSource(
             code: context.code,
+            bytes: bytes,
             literals: context.literals.sorted { $0.start < $1.start },
             ignoredLines: context.ignoredLines,
             isFileIgnored: context.isFileIgnored,
-            previewRanges: previewRanges(in: context.code)
+            previewRanges: previewRanges(in: bytes)
         )
     }
 
+    private static let openBrace: UInt8 = 0x7B
+    private static let closeBrace: UInt8 = 0x7D
+
     /// `#Preview { … }` bodies and `PreviewProvider` conformances. Sample data
     /// in previews is not shipped UI, so it is not a localization defect.
-    static func previewRanges(in code: [Character]) -> [Range<Int>] {
+    static func previewRanges(in code: [UInt8]) -> [Range<Int>] {
         var ranges: [Range<Int>] = []
-        for marker in [Array("#Preview"), Array("PreviewProvider")] {
-            for start in occurrences(of: marker, in: code) {
+        for marker in ["#Preview".scanBytes, "PreviewProvider".scanBytes] {
+            for start in ByteScan.occurrences(of: marker, in: code) {
                 var index = start
                 let limit = min(code.count, start + 300)
-                while index < limit, code[index] != "{" { index += 1 }
-                guard index < limit, code[index] == "{" else { continue }
+                while index < limit, code[index] != openBrace { index += 1 }
+                guard index < limit, code[index] == openBrace else { continue }
                 var depth = 0
                 var end = index
                 while end < code.count {
-                    if code[end] == "{" { depth += 1 }
-                    if code[end] == "}" {
+                    if code[end] == openBrace { depth += 1 }
+                    if code[end] == closeBrace {
                         depth -= 1
                         if depth == 0 { end += 1; break }
                     }
@@ -85,17 +93,6 @@ public enum SwiftLexer {
             }
         }
         return ranges
-    }
-
-    static func occurrences(of needle: [Character], in haystack: [Character]) -> [Int] {
-        guard !needle.isEmpty, haystack.count >= needle.count else { return [] }
-        var found: [Int] = []
-        for index in 0...(haystack.count - needle.count) where haystack[index] == needle[0] {
-            var offset = 1
-            while offset < needle.count, haystack[index + offset] == needle[offset] { offset += 1 }
-            if offset == needle.count { found.append(index) }
-        }
-        return found
     }
 }
 

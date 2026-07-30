@@ -102,6 +102,29 @@ enum Registry {
         discussion: "Exits 1 when nothing matched, so it can gate a script."
     )
 
+    static let diff = CommandSpec(
+        name: "diff",
+        summary: "What changed between two versions of a catalog.",
+        usage: "xclocsmith diff <ref> | xclocsmith diff <old.xcstrings> <new.xcstrings>",
+        flags: [
+            Flags.lang, Flags.config, Flags.noConfig, Flags.json, Flags.format,
+            Flags.strict,
+        ],
+        discussion: """
+            Reports source strings that changed while their translations did not.
+            Xcode marks a translation needs_review when it notices the source
+            move, but only for edits made in its own editor: a string changed by
+            a merge, a script or a hand edit leaves every translation reading
+            "translated" and saying the wrong thing.
+
+            With a git ref, every catalog in the project is compared against that
+            commit. With two paths, those two files are compared and git is not
+            involved.
+
+            Reads only.
+            """
+    )
+
     static let initialize = CommandSpec(
         name: "init",
         summary: "Write a \(Configuration.fileName) describing this project.",
@@ -146,7 +169,7 @@ enum Registry {
 
     static let xclocActions: [CommandSpec] = [xclocCheck, xclocApply]
 
-    static let all: [CommandSpec] = [check, scan, prune, add, set, lookup, xclocCheck, xclocApply, initialize]
+    static let all: [CommandSpec] = [check, scan, diff, prune, add, set, lookup, xclocCheck, xclocApply, initialize]
 
     static var allFlags: Set<String> {
         Set(all.flatMap { $0.flags.map(\.name) })

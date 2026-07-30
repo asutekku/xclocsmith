@@ -183,6 +183,45 @@ func run() -> Int32 {
                 strict: strict
             )
 
+        case "diff":
+            let configuration = try makeConfiguration(parsed)
+            let command = DiffCommand(options: .init(languages: CommandLineParser.languages(parsed)))
+            let paths = catalogArguments(parsed)
+            let report: DiffReport
+            if paths.count == 2 {
+                // Two files, no git: the form that works on an export, a
+                // backup, or anything not in a repository at all.
+                let before = try Catalog(path: configuration.absolute(paths[0]))
+                let after = try Catalog(
+                    path: configuration.absolute(paths[1]),
+                    displayPath: paths[1]
+                )
+                report = DiffReport(catalogs: [command.run(before: before, after: after)])
+            } else if paths.count == 1 {
+                throw SmithError.usage(
+                    "diff takes a git ref, or two catalog paths. One path is neither."
+                )
+            } else {
+                let words = wordArguments(parsed)
+                guard words.count == 1 else { throw SmithError.usage("usage: \(spec.usage)") }
+                let workspace = Workspace(configuration: configuration)
+                guard let root = Git.repositoryRoot(of: configuration.root) else {
+                    throw SmithError.usage("\(configuration.root) is not inside a git repository")
+                }
+                report = try command.run(
+                    reference: words[0],
+                    catalogs: workspace.allCatalogs(),
+                    repositoryRoot: root
+                )
+            }
+            return emit(
+                report,
+                format: try CommandLineParser.format(parsed),
+                configuration: configuration,
+                text: renderer.render(report),
+                strict: strict
+            )
+
         case "prune":
             let configuration = try makeConfiguration(parsed)
             if parsed.isSet(Flags.dryRun) && parsed.isSet(Flags.apply) {

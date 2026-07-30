@@ -35,9 +35,15 @@ public struct AnalyzedSource {
     /// serve them: DuckDuckGo's `makeTab(title:)` and `makeBookmark(title:)`
     /// accounted for 6,140 findings on their own.
     public var isTestCode: Bool {
-        let code = lexed.code
-        if code.contains("import XCTest") || code.contains("@testable import") { return true }
-        if code.contains("import Testing"), code.contains("@Test") { return true }
+        // Over the comment-stripped bytes: `[Character].contains(someString)`
+        // runs a generic grapheme-by-grapheme searcher over every file in the
+        // project, and on DuckDuckGo these four searches were a third of the
+        // whole command.
+        let code = lexed.bytes
+        if ByteScan.contains(Self.xctestImport, in: code)
+            || ByteScan.contains(Self.testableImport, in: code) { return true }
+        if ByteScan.contains(Self.testingImport, in: code),
+           ByteScan.contains(Self.testAttribute, in: code) { return true }
 
         let components = displayPath.split(separator: "/").map(String.init)
         guard let name = components.last else { return false }
@@ -48,6 +54,11 @@ public struct AnalyzedSource {
                 || directory == "Tests" || directory == "TestUtilities"
         }
     }
+
+    private static let xctestImport = "import XCTest".scanBytes
+    private static let testableImport = "@testable import".scanBytes
+    private static let testingImport = "import Testing".scanBytes
+    private static let testAttribute = "@Test".scanBytes
 }
 
 /// One user-visible string found in source.
@@ -99,7 +110,7 @@ public enum SourceAnalyzer {
         var result = SourceScanResult()
         guard !file.lexed.isFileIgnored else { return result }
 
-        var analyzer = CallSiteAnalyzer(code: file.lexed.code)
+        var analyzer = CallSiteAnalyzer(code: file.lexed.code, bytes: file.lexed.bytes)
         analyzer.literalsByStart = Dictionary(
             file.lexed.literals.map { ($0.start, $0) },
             uniquingKeysWith: { first, _ in first }

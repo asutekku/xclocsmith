@@ -63,6 +63,17 @@ First release.
 - Catalog findings resolve to the line their key is declared on, so an
   annotation lands on the row rather than the top of the file.
 
+### Reviewing
+
+- `diff` compares catalogs against a git ref, or two files against each other,
+  and reports source strings that changed while their translations did not.
+  Xcode only marks `needs_review` for edits made in its own editor, so a string
+  changed by a merge, a script or a hand edit strands every translation silently.
+- Translations already marked `needs_review` are not reported again; the catalog
+  is already carrying that warning.
+- The git ref is verified before any file is read, so a mistyped ref fails
+  instead of making every catalog look newly added.
+
 ### Editing
 
 - Writes merge into the existing localization; plural variations and

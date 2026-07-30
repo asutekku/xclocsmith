@@ -52,11 +52,29 @@ public struct LiteralContext: Equatable, Sendable {
 /// Resolves each literal to its enclosing call by parsing the argument list
 /// forward from the opening parenthesis.
 public struct CallSiteAnalyzer {
+    /// Kept only for reading text back out; every comparison goes through
+    /// `bytes`, which is the same length and indexed identically.
     private let code: [Character]
+    private let bytes: [UInt8]
     private var siteCache: [Int: CallSite] = [:]
 
-    public init(code: [Character]) {
+    private static let openParenByte: UInt8 = 0x28
+    private static let closeParenByte: UInt8 = 0x29
+    private static let openBracket: UInt8 = 0x5B
+    private static let closeBracket: UInt8 = 0x5D
+    private static let openBrace: UInt8 = 0x7B
+    private static let closeBrace: UInt8 = 0x7D
+    private static let comma: UInt8 = 0x2C
+    private static let colon: UInt8 = 0x3A
+    private static let equals: UInt8 = 0x3D
+    private static let dot: UInt8 = 0x2E
+    private static let plus: UInt8 = 0x2B
+    private static let underscore: UInt8 = 0x5F
+
+    public init(code: [Character], bytes: [UInt8]) {
         self.code = code
+        self.bytes = bytes
+        self.enclosing = Self.openerTable(bytes)
     }
 
     public mutating func context(for literal: SourceLiteral) -> LiteralContext {
@@ -128,22 +146,26 @@ public struct CallSiteAnalyzer {
     private func assignmentTarget(before literal: SourceLiteral) -> String? {
         var probe = literal.contextStart - 1
         func skipWhitespace() {
-            while probe >= 0, code[probe] == " " || code[probe] == "\t" || code[probe].isNewline { probe -= 1 }
+            while probe >= 0, ByteScan.isBlank(bytes[probe]) { probe -= 1 }
         }
         skipWhitespace()
-        guard probe >= 0, code[probe] == "=" else { return nil }
+        guard probe >= 0, bytes[probe] == Self.equals else { return nil }
         // Not `==`, `!=`, `>=`, `<=`.
-        guard probe - 1 >= 0, !"=!<>+-*/%".contains(code[probe - 1]) else { return nil }
+        guard probe - 1 >= 0, !Self.comparisonPrefixes.contains(bytes[probe - 1]) else { return nil }
         probe -= 1
         skipWhitespace()
         let end = probe
-        while probe >= 0, code[probe].isLetter || code[probe].isNumber || code[probe] == "_" { probe -= 1 }
+        while probe >= 0, ByteScan.isIdentifier(bytes[probe]) { probe -= 1 }
         guard end > probe else { return nil }
         // Only a member access is an assignment to a view's text. `let title =
         // "…"` is a local constant, and every Swift file is full of those.
-        guard probe >= 0, code[probe] == "." else { return nil }
+        guard probe >= 0, bytes[probe] == Self.dot else { return nil }
         return String(code[(probe + 1)...end])
     }
+
+    /// `=!<>+-*/%` — an `=` preceded by one of these is a comparison or a
+    /// compound assignment, not a plain assignment.
+    private static let comparisonPrefixes: Set<UInt8> = Set("=!<>+-*/%".scanBytes)
 
     /// Literals recorded by the lexer, needed to read sibling arguments such as
     /// `tableName: "Errors"` whose bodies are blanked in `code`.
@@ -169,7 +191,15 @@ public struct CallSiteAnalyzer {
     private func argumentSpansOnly(literal: SourceLiteral, argument: CallArgument) -> Bool {
         let before = argument.range.lowerBound..<min(literal.contextStart, argument.range.upperBound)
         let after = min(literal.end, argument.range.upperBound)..<argument.range.upperBound
-        return text(in: before).isEmpty && text(in: after).isEmpty
+        return isBlank(before) && isBlank(after)
+    }
+
+    /// Whether the range holds nothing but whitespace — what asking whether the
+    /// trimmed text is empty was doing, without building the string.
+    private func isBlank(_ range: Range<Int>) -> Bool {
+        let clamped = range.clamped(to: 0..<bytes.count)
+        for offset in clamped where !ByteScan.isBlank(bytes[offset]) { return false }
+        return true
     }
 
     /// For `"Save".localized`, returns `localized`.
@@ -179,45 +209,66 @@ public struct CallSiteAnalyzer {
     /// expression on something else.
     private func trailingMember(after literal: SourceLiteral) -> String? {
         var probe = literal.end
-        while probe < code.count, code[probe] == " " || code[probe] == "\t" { probe += 1 }
-        guard probe < code.count, code[probe] == "." else { return nil }
+        while probe < bytes.count, bytes[probe] == 0x20 || bytes[probe] == 0x09 { probe += 1 }
+        guard probe < bytes.count, bytes[probe] == Self.dot else { return nil }
         probe += 1
         let start = probe
-        while probe < code.count, code[probe].isLetter || code[probe].isNumber || code[probe] == "_" {
-            probe += 1
-        }
+        while probe < bytes.count, ByteScan.isIdentifier(bytes[probe]) { probe += 1 }
         guard probe > start else { return nil }
         return String(code[start..<probe])
     }
 
     private func isConcatenated(_ literal: SourceLiteral) -> Bool {
         var before = literal.contextStart - 1
-        while before >= 0, code[before] == " " || code[before] == "\t" || code[before].isNewline { before -= 1 }
-        if before >= 0, code[before] == "+" { return true }
+        while before >= 0, ByteScan.isBlank(bytes[before]) { before -= 1 }
+        if before >= 0, bytes[before] == Self.plus { return true }
 
         var after = literal.end
-        while after < code.count, code[after] == " " || code[after] == "\t" || code[after].isNewline { after += 1 }
-        return after < code.count && code[after] == "+"
+        while after < bytes.count, ByteScan.isBlank(bytes[after]) { after += 1 }
+        return after < bytes.count && bytes[after] == Self.plus
     }
 
-    /// Walks back to the `(` that opens the call containing `offset`.
+    /// The `(` that opens the call containing `offset`, from the table built in
+    /// `init`.
+    ///
+    /// Walking backwards from each literal to find it was the single most
+    /// expensive thing `scan` did: quadratic in a file with many literals, and
+    /// paid again for every one of them. The same answer for every offset in
+    /// the file falls out of one forward pass with a stack of open delimiters,
+    /// because "nearest unmatched opener before here" is what both compute.
     private func enclosingCallParen(before offset: Int) -> Int? {
-        var depth = 0
-        var probe = offset - 1
-        while probe >= 0 {
-            let character = code[probe]
-            if character == ")" || character == "]" || character == "}" {
-                depth += 1
-            } else if character == "(" {
-                if depth == 0 { return probe }
-                depth -= 1
-            } else if character == "[" || character == "{" {
-                if depth == 0 { return nil }   // array or closure, not a call
-                depth -= 1
+        guard offset >= 0, offset < enclosing.count else { return nil }
+        let opener = Int(enclosing[offset])
+        guard opener >= 0, bytes[opener] == Self.openParenByte else { return nil }
+        return opener
+    }
+
+    /// `enclosing[i]` is the position of the innermost delimiter still open
+    /// just before offset `i`, or -1. Int32 because a source file that needs
+    /// more than two billion characters is not one this tool will be asked
+    /// about, and half the memory keeps it in cache.
+    private let enclosing: [Int32]
+
+    private static func openerTable(_ bytes: [UInt8]) -> [Int32] {
+        var table = [Int32](repeating: -1, count: bytes.count + 1)
+        var stack: [Int32] = []
+        stack.reserveCapacity(64)
+        table.withUnsafeMutableBufferPointer { slots in
+            bytes.withUnsafeBufferPointer { source in
+                for index in 0..<source.count {
+                    switch source[index] {
+                    case openParenByte, openBracket, openBrace:
+                        stack.append(Int32(index))
+                    case closeParenByte, closeBracket, closeBrace:
+                        if !stack.isEmpty { stack.removeLast() }
+                    default:
+                        break
+                    }
+                    slots[index + 1] = stack.last ?? -1
+                }
             }
-            probe -= 1
         }
-        return nil
+        return table
     }
 
     private func parseCallSite(openParen: Int) -> CallSite? {
@@ -228,19 +279,19 @@ public struct CallSiteAnalyzer {
         var cursor = openParen + 1
         var argumentStart = cursor
 
-        while cursor < code.count {
-            let character = code[cursor]
-            if character == "(" || character == "[" || character == "{" {
+        while cursor < bytes.count {
+            let byte = bytes[cursor]
+            if byte == Self.openParenByte || byte == Self.openBracket || byte == Self.openBrace {
                 depth += 1
-            } else if character == ")" || character == "]" || character == "}" {
-                if depth == 0, character == ")" {
+            } else if byte == Self.closeParenByte || byte == Self.closeBracket || byte == Self.closeBrace {
+                if depth == 0, byte == Self.closeParenByte {
                     if cursor > argumentStart {
                         arguments.append(makeArgument(argumentStart..<cursor))
                     }
                     return CallSite(callee: callee, isMethod: isMethod, openParen: openParen, arguments: arguments)
                 }
                 depth -= 1
-            } else if character == ",", depth == 0 {
+            } else if byte == Self.comma, depth == 0 {
                 arguments.append(makeArgument(argumentStart..<cursor))
                 argumentStart = cursor + 1
             }
@@ -255,19 +306,17 @@ public struct CallSiteAnalyzer {
     private func makeArgument(_ range: Range<Int>) -> CallArgument {
         var cursor = range.lowerBound
         func skipWhitespace() {
-            while cursor < range.upperBound,
-                  code[cursor] == " " || code[cursor] == "\t" || code[cursor].isNewline { cursor += 1 }
+            while cursor < range.upperBound, ByteScan.isBlank(bytes[cursor]) { cursor += 1 }
         }
 
         skipWhitespace()
         let identifierStart = cursor
-        while cursor < range.upperBound,
-              code[cursor].isLetter || code[cursor].isNumber || code[cursor] == "_" { cursor += 1 }
+        while cursor < range.upperBound, ByteScan.isIdentifier(bytes[cursor]) { cursor += 1 }
         let identifierEnd = cursor
         guard identifierEnd > identifierStart else { return CallArgument(label: nil, range: range) }
 
         skipWhitespace()
-        guard cursor < range.upperBound, code[cursor] == ":" else {
+        guard cursor < range.upperBound, bytes[cursor] == Self.colon else {
             return CallArgument(label: nil, range: range)
         }
         // `::` does not occur in Swift, but a `?:` would already have failed above.
@@ -281,10 +330,10 @@ public struct CallSiteAnalyzer {
         // else here means this is not a call (`if (x)`, `return (a, b)`).
         guard end >= 0 else { return nil }
         var start = end
-        while start >= 0, code[start].isLetter || code[start].isNumber || code[start] == "_" { start -= 1 }
+        while start >= 0, ByteScan.isIdentifier(bytes[start]) { start -= 1 }
         guard end > start else { return nil }
         let name = String(code[(start + 1)...end])
-        let isMethod = start >= 0 && code[start] == "."
+        let isMethod = start >= 0 && bytes[start] == Self.dot
         return (name, isMethod)
     }
 }

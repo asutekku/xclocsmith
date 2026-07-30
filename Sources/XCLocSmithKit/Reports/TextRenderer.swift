@@ -195,6 +195,80 @@ public struct TextRenderer {
         return lines.joined(separator: "\n")
     }
 
+    // MARK: - diff
+
+    public func render(_ report: DiffReport) -> String {
+        var lines: [String] = []
+
+        for diff in report.catalogs {
+            if diff.isNew {
+                lines.append("\(diff.catalog)  (new — \(diff.addedKeys.count) key(s))")
+                lines.append("")
+                continue
+            }
+            var headline = diff.catalog
+            var summary: [String] = []
+            if !diff.addedKeys.isEmpty { summary.append("+\(diff.addedKeys.count)") }
+            if !diff.removedKeys.isEmpty { summary.append("-\(diff.removedKeys.count)") }
+            if !diff.sourceChanges.isEmpty { summary.append("~\(diff.sourceChanges.count) source") }
+            if summary.isEmpty { summary.append("unchanged") }
+            headline += "  (\(summary.joined(separator: ", ")))"
+            lines.append(headline)
+
+            if let previous = diff.sourceLanguageChanged {
+                lines.append("")
+                lines.append("  note  source language changed from \(previous) — every string is reinterpreted")
+            }
+
+            let stranding = diff.stranding
+            if !stranding.isEmpty {
+                lines.append("")
+                lines.append("  FAIL  source changed, translations did not (\(stranding.count)):")
+                for change in stranding.prefix(maximumListLength) {
+                    lines.append("    - \"\(escaped(change.key))\"")
+                    lines.append("        was  \"\(escaped(change.before))\"")
+                    lines.append("        now  \"\(escaped(change.after))\"")
+                    lines.append("        still the old text: \(change.staleLanguages.joined(separator: ", "))")
+                    if !change.updatedLanguages.isEmpty {
+                        lines.append("        updated: \(change.updatedLanguages.joined(separator: ", "))")
+                    }
+                }
+                if stranding.count > maximumListLength {
+                    lines.append("    … and \(stranding.count - maximumListLength) more")
+                }
+                lines.append("    These say \"translated\" and say the wrong thing. Retranslate them,")
+                lines.append("    or mark them needs_review with `set --state needs_review`.")
+            }
+
+            // A source change every translation followed is the thing going
+            // right, and worth confirming rather than passing over in silence.
+            let followed = diff.sourceChanges.count - stranding.count
+            if followed > 0 {
+                lines.append("")
+                lines.append("  note  \(followed) source string(s) changed with every translation updated")
+            }
+
+            if !diff.addedKeys.isEmpty {
+                lines.append("")
+                lines.append("  note  new keys (\(diff.addedKeys.count)):")
+                lines.append(contentsOf: list(diff.addedKeys))
+            }
+            if !diff.removedKeys.isEmpty {
+                lines.append("")
+                lines.append("  note  removed keys (\(diff.removedKeys.count)):")
+                lines.append(contentsOf: list(diff.removedKeys))
+            }
+            lines.append("")
+        }
+
+        lines.append(contentsOf: renderDiagnostics(report.diagnostics))
+        if let reference = report.reference {
+            lines.append("Compared against \(reference).")
+        }
+        lines.append(summary(failures: report.failures, advisories: report.advisories))
+        return lines.joined(separator: "\n")
+    }
+
     // MARK: - scan
 
     public func render(_ report: ScanReport) -> String {
