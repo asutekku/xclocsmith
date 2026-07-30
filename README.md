@@ -210,6 +210,39 @@ Rules the CLI follows so automation cannot go wrong quietly:
   refuses to act, because a refusal needs a decision, not a fix.
 - `--` ends flag parsing, so a key can be any string: `xclocsmith set -- "--odd key" "値"`.
 
+## MCP server
+
+`xclocsmith-mcp` speaks the Model Context Protocol over stdio, so an agent can
+call the tools directly instead of shelling out and parsing output.
+
+```json
+{
+  "mcpServers": {
+    "xclocsmith": { "command": "/usr/local/bin/xclocsmith-mcp" }
+  }
+}
+```
+
+The reason to prefer it over the CLI is **permission granularity**. Anything that
+can run `xclocsmith` in a shell can run `xclocsmith prune --apply --force`. Here
+the reading tools and the writing tools are separate, annotated tools, so a host
+can grant one set and confirm the other:
+
+| Tool | Reads | Writes |
+|---|---|---|
+| `check_catalogs`, `scan_sources`, `lookup_keys`, `xcloc_check` | ✔ | — |
+| `add_translations`, `set_translation`, `xcloc_apply` | ✔ | on request |
+| `prune_catalogs` | ✔ | on request, and marked destructive |
+
+Every tool takes an absolute `projectRoot`, because an MCP server has no working
+directory. Writing tools default to reporting: `prune_catalogs` and `xcloc_apply`
+do nothing until `apply: true`, and `add_translations`/`set_translation` accept
+`dryRun`. Results carry both a readable summary and `structuredContent` holding
+the same report the CLI's `--json` emits.
+
+The server is hand-written JSON-RPC over the package's own JSON layer, so
+installing it is still just `swift build`.
+
 ## Configuration
 
 `.xclocsmith.json`, found by walking up from the working directory. Everything is

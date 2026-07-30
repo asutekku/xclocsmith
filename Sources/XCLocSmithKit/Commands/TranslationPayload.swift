@@ -57,6 +57,10 @@ public struct TranslationPayload {
         } catch let error as JSONParseError {
             throw SmithError.invalidPayload(path: path, reason: error.description)
         }
+        return try load(from: document, path: path)
+    }
+
+    public static func load(from document: JSONValue, path: String) throws -> TranslationPayload {
         guard let fields = document.objectValue else {
             throw SmithError.invalidPayload(path: path, reason: "top level must be a JSON object")
         }

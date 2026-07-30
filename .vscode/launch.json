@@ -19,6 +19,26 @@
             "target": "xclocsmith",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release xclocsmith"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:xclocsmith}",
+            "name": "Debug xclocsmith-mcp",
+            "target": "xclocsmith-mcp",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug xclocsmith-mcp"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:xclocsmith}",
+            "name": "Release xclocsmith-mcp",
+            "target": "xclocsmith-mcp",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release xclocsmith-mcp"
         }
     ]
 }

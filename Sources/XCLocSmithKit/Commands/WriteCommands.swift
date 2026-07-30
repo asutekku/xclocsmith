@@ -248,7 +248,7 @@ public struct PruneCommand {
     }
 
     public func run() throws -> [WriteReport] {
-        var scan = ScanCommand(
+        let scan = ScanCommand(
             workspace: workspace,
             options: .init(writeTemplates: false, includeFormatKeysInOrphans: options.includeFormatKeys)
         )
@@ -263,7 +263,7 @@ public struct PruneCommand {
             // the same file twice: two plans would be saved from two copies and
             // the last write would silently undo the first.
             guard seenCatalogs.insert(orphan.catalog).inserted else { continue }
-            guard var catalog = workspace.catalog(at: orphan.catalog) else { continue }
+            guard let catalog = workspace.catalog(at: orphan.catalog) else { continue }
             var report = WriteReport(catalog: catalog.displayPath)
             report.dryRun = options.dryRun
 

@@ -18,6 +18,8 @@ public enum JSONWriter {
         case xcode
         /// Conventional JSON for files this tool owns (config, reports).
         case plain
+        /// One line, no whitespace. Required by newline-delimited transports.
+        case compact
     }
 
     public static func text(_ value: JSONValue, style: Style = .xcode) -> String {
@@ -27,7 +29,18 @@ public enum JSONWriter {
         return output
     }
 
+    /// One line, no trailing newline — for newline-delimited transports.
+    public static func line(_ value: JSONValue) -> String {
+        var output = ""
+        writeCompact(value, into: &output)
+        return output
+    }
+
     private static func write(_ value: JSONValue, indent: Int, style: Style, into output: inout String) {
+        if style == .compact {
+            writeCompact(value, into: &output)
+            return
+        }
         let pad = String(repeating: " ", count: indent * 2)
         let inner = String(repeating: " ", count: (indent + 1) * 2)
         let separator = style == .xcode ? " : " : ": "
@@ -73,6 +86,30 @@ public enum JSONWriter {
                 output += offset == keys.count - 1 ? "\n" : ",\n"
             }
             output += "\(pad)}"
+        }
+    }
+
+    private static func writeCompact(_ value: JSONValue, into output: inout String) {
+        switch value {
+        case .string(let string): output += "\"\(escape(string, style: .compact))\""
+        case .number(let raw): output += raw
+        case .bool(let flag): output += flag ? "true" : "false"
+        case .null: output += "null"
+        case .array(let items):
+            output += "["
+            for (offset, item) in items.enumerated() {
+                if offset > 0 { output += "," }
+                writeCompact(item, into: &output)
+            }
+            output += "]"
+        case .object(let fields):
+            output += "{"
+            for (offset, key) in fields.keys.sorted().enumerated() {
+                if offset > 0 { output += "," }
+                output += "\"\(escape(key, style: .compact))\":"
+                if let field = fields[key] { writeCompact(field, into: &output) }
+            }
+            output += "}"
         }
     }
 

@@ -86,6 +86,18 @@ Found by an independent audit of this code, each with a regression test:
   only where the context is weak, never where a localization API is explicit.
 - Multi-line interpolated literals produced no format pattern at all.
 
+### MCP
+
+- `xclocsmith-mcp`, an stdio MCP server (protocol 2025-06-18) exposing eight
+  tools over the same library the CLI uses.
+- Reading and writing tools are separate and annotated (`readOnlyHint`,
+  `destructiveHint`), so a host can grant the read-only half and confirm the
+  rest — a distinction a shell cannot make.
+- Results carry a readable summary and `structuredContent` holding the same
+  report as `--json`.
+- No dependencies: the JSON-RPC layer is written against the package's own JSON
+  types.
+
 ### Interface
 
 - `--json` on every command, rendered from the same report as the text output.
