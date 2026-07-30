@@ -4,3 +4,4 @@
 .DS_Store
 translations.json
 translations-*.json
+corpus/

@@ -12,6 +12,13 @@ public protocol Report {
     /// Findings that are reported but do not fail.
     var advisories: Int { get }
     var jsonValue: JSONValue { get }
+    /// Every finding, flattened for SARIF and GitHub annotations.
+    ///
+    /// A protocol *requirement* rather than only an extension: a member
+    /// supplied by a protocol extension alone is dispatched statically, so
+    /// `render(some Report)` would call the empty default and every annotation
+    /// format would silently emit nothing.
+    var findings: [Finding] { get }
 }
 
 // MARK: - check

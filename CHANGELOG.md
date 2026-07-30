@@ -52,6 +52,17 @@ First release.
   project, since whether a call localizes depends on declarations elsewhere.
   Orphans are not reported for a subset, and the run says so.
 
+### Output
+
+- `--format sarif` (SARIF 2.1.0, for GitHub code scanning) and `--format github`
+  (workflow commands, for inline pull-request annotations) on `check`, `scan`
+  and `xcloc check`. `--json` is the same as `--format json`; giving both a
+  contradiction is a usage error rather than a silent preference.
+- Both render from a flattened `Report.findings`, so the annotation count equals
+  the reported finding count, and each finding carries a stable rule id.
+- Catalog findings resolve to the line their key is declared on, so an
+  annotation lands on the row rather than the top of the file.
+
 ### Editing
 
 - Writes merge into the existing localization; plural variations and

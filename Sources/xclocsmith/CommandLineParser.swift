@@ -24,6 +24,13 @@ enum Flags {
     static let config = Flag.value("--config", "Path to a \(Configuration.fileName).")
     static let noConfig = Flag.bool("--no-config", "Ignore configuration files; discover the project instead.")
     static let json = Flag.bool("--json", "Emit the report as JSON.")
+    // Names `--json` rather than the other way round: a flag's help is printed
+    // by every command that accepts it, and naming a flag the command rejects
+    // advertises something the parser will refuse.
+    static let format = Flag.value(
+        "--format",
+        "Output format: text (default), json, sarif, github. --json is the same as json."
+    )
     static let strict = Flag.bool("--strict", "Treat advisory findings as failures.")
     static let out = Flag.value("--out", "Path for the translation template.")
     static let template = Flag.bool("--template", "Write a translation template for what is missing.")
@@ -156,6 +163,23 @@ enum CommandLineParser {
 
     static func files(_ parsed: ParsedCommand) -> [String] {
         split(parsed.list(Flags.files))
+    }
+
+    /// `--json` is the older spelling of `--format json`, kept because scripts
+    /// use it. Given both, they must agree — silently preferring one would make
+    /// `--json --format sarif` write a format the caller did not ask for.
+    static func format(_ parsed: ParsedCommand) throws -> OutputFormat {
+        guard let raw = parsed.value(Flags.format) else {
+            return parsed.isSet(Flags.json) ? .json : .text
+        }
+        guard let format = OutputFormat(rawValue: raw) else {
+            let known = OutputFormat.allCases.map(\.rawValue).joined(separator: ", ")
+            throw SmithError.usage("--format takes one of: \(known) (got \"\(raw)\")")
+        }
+        if parsed.isSet(Flags.json), format != .json {
+            throw SmithError.usage("--json and --format \(raw) contradict each other")
+        }
+        return format
     }
 
     private static func split(_ values: [String]) -> [String] {

@@ -161,6 +161,9 @@ talking"` — state `translated`, and detectable only beside its twin. Mastodon'
 Whisky and Loop genuinely have no unlocalized strings, and the tool finds none
 across their 213 files. No false positives padding the column.
 
+Reproduce it with [`Scripts/corpus.sh`](Scripts/corpus.sh), which clones the
+nine at the commits these numbers were measured against and prints the table.
+
 † Nimble Commander is Objective-C++. It has 54 catalogs and three Swift files,
 so its zero means `scan` had almost nothing to read — `check` is fully
 meaningful there, `scan` is not. Objective-C sources are not scanned at all;
@@ -585,6 +588,30 @@ jobs:
       - run: Tools/xclocsmith/.build/release/xclocsmith check
       - run: Tools/xclocsmith/.build/release/xclocsmith scan
 ```
+
+**Findings on the diff instead of in a log.** `check`, `scan` and `xcloc check`
+take `--format github`, which emits workflow commands, and `--format sarif`,
+which GitHub code scanning ingests. Both point at the line a key is declared on
+rather than at the top of a four-thousand-line catalog.
+
+```yaml
+      - run: xclocsmith check --format github     # inline on the PR
+      - run: xclocsmith check --format sarif > loc.sarif
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with: { sarif_file: loc.sarif }
+```
+
+```
+::warning file=App/Localizable.xcstrings,line=4,title=divergent-translation::"Remove" is translated two ways in de: "Löschen" (button.removeAlert.delete) vs "Entfernen" (environment.remove)
+```
+
+Every finding carries a stable rule id — `missing-translation`,
+`format-mismatch`, `divergent-translation`, `string-not-in-catalog` and so on —
+so a code-scanning filter written against one keeps working. Failures are SARIF
+`error`, advisories `warning`, and the number of annotations equals the number
+the run reports; a test enforces that, because an annotation stream quietly
+shorter than the terminal output is invisible either way.
 
 Use `--strict` to fail on advisories too (near-duplicate keys, bypasses,
 unreferenced keys). Distinguish the exit codes if you want misconfiguration to

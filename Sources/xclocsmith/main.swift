@@ -10,15 +10,40 @@ func printError(_ message: String) {
     FileHandle.standardError.write(Data(("xclocsmith: " + message + "\n").utf8))
 }
 
-func emit(_ report: some Report, json: Bool, text: @autoclosure () -> String, strict: Bool) -> Int32 {
-    if json {
-        print(JSONWriter.text(report.jsonValue, style: .plain), terminator: "")
-    } else {
+func emit(
+    _ report: some Report,
+    format: OutputFormat,
+    configuration: Configuration,
+    text: @autoclosure () -> String,
+    strict: Bool
+) -> Int32 {
+    switch format {
+    case .text:
         print(text())
+    case .json:
+        print(JSONWriter.text(report.jsonValue, style: .plain), terminator: "")
+    case .sarif:
+        let renderer = MachineRenderer(configuration: configuration)
+        print(renderer.sarif(report, toolVersion: toolVersion), terminator: "")
+    case .github:
+        // A clean run prints nothing at all: a workflow log with one blank line
+        // in it reads as output that failed to happen.
+        let output = MachineRenderer(configuration: configuration).github(report)
+        if !output.isEmpty { print(output) }
     }
     if report.failures > 0 { return exitFindings }
     if strict && report.advisories > 0 { return exitFindings }
     return exitClean
+}
+
+func emit(_ report: some Report, json: Bool, text: @autoclosure () -> String, strict: Bool) -> Int32 {
+    emit(
+        report,
+        format: json ? .json : .text,
+        configuration: Configuration(root: FileManager.default.currentDirectoryPath),
+        text: text(),
+        strict: strict
+    )
 }
 
 func makeConfiguration(_ parsed: ParsedCommand) throws -> Configuration {
@@ -120,7 +145,13 @@ func run() -> Int32 {
             )
             let catalogs = catalogArguments(parsed)
             let report = try command.run(catalogPaths: catalogs.isEmpty ? nil : catalogs)
-            return emit(report, json: json, text: renderer.render(report), strict: strict)
+            return emit(
+                report,
+                format: try CommandLineParser.format(parsed),
+                configuration: configuration,
+                text: renderer.render(report),
+                strict: strict
+            )
 
         case "scan":
             var configuration = try makeConfiguration(parsed)
@@ -144,7 +175,13 @@ func run() -> Int32 {
                 )
             )
             let report = try command.run()
-            return emit(report, json: json, text: renderer.render(report), strict: strict)
+            return emit(
+                report,
+                format: try CommandLineParser.format(parsed),
+                configuration: configuration,
+                text: renderer.render(report),
+                strict: strict
+            )
 
         case "prune":
             let configuration = try makeConfiguration(parsed)
@@ -238,7 +275,13 @@ func run() -> Int32 {
             }
             let command = XclocCheckCommand(workspace: Workspace(configuration: configuration))
             let report = try command.run(bundlePath: bundle)
-            return emit(report, json: json, text: renderer.render(report), strict: strict)
+            return emit(
+                report,
+                format: try CommandLineParser.format(parsed),
+                configuration: configuration,
+                text: renderer.render(report),
+                strict: strict
+            )
 
         case "xcloc apply":
             let configuration = try makeConfiguration(parsed)

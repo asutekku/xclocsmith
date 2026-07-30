@@ -9,8 +9,8 @@ enum Registry {
         summary: "Translation coverage and catalog health.",
         usage: "xclocsmith check [catalog.xcstrings ...]",
         flags: [
-            Flags.lang, Flags.config, Flags.noConfig, Flags.json, Flags.strict,
-            Flags.out, Flags.threshold,
+            Flags.lang, Flags.config, Flags.noConfig, Flags.json, Flags.format,
+            Flags.strict, Flags.out, Flags.threshold,
         ],
         discussion: """
             Reports, per catalog and language: missing and empty translations,
@@ -27,9 +27,9 @@ enum Registry {
         summary: "Find user-visible strings in source and check them against the catalogs.",
         usage: "xclocsmith scan [directory ...]",
         flags: [
-            Flags.lang, Flags.config, Flags.noConfig, Flags.json, Flags.strict,
-            Flags.out, Flags.template, Flags.noTemplate, Flags.previews,
-            Flags.includeFormatKeys, Flags.files,
+            Flags.lang, Flags.config, Flags.noConfig, Flags.json, Flags.format,
+            Flags.strict, Flags.out, Flags.template, Flags.noTemplate,
+            Flags.previews, Flags.includeFormatKeys, Flags.files,
         ],
         discussion: """
             Resolves each call to the table it asks for, so a key in Errors.xcstrings
@@ -114,7 +114,10 @@ enum Registry {
         name: "xcloc check",
         summary: "Validate a localization catalog (.xcloc) or XLIFF before importing it.",
         usage: "xclocsmith xcloc check <bundle.xcloc|file.xliff>",
-        flags: [Flags.lang, Flags.config, Flags.noConfig, Flags.json, Flags.strict],
+        flags: [
+            Flags.lang, Flags.config, Flags.noConfig, Flags.json, Flags.format,
+            Flags.strict,
+        ],
         discussion: """
             Checks what Xcode's import does not: format specifiers in each
             translation against its source, plural units against the categories
