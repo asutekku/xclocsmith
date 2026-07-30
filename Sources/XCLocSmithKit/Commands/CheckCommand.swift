@@ -33,6 +33,27 @@ public struct CheckCommand {
         for catalog in catalogs {
             report.catalogs.append(try analyze(catalog))
         }
+        // Project-level checks run over whatever set was analysed, so
+        // `check <one.xcstrings>` does not claim the other catalogs are missing
+        // languages it was never asked to look at.
+        if catalogPaths == nil {
+            report.project.append(contentsOf: ProjectChecks.infoPlistCoverage(
+                targets: workspace.targets,
+                catalogs: catalogs,
+                configuration: workspace.configuration
+            ))
+            report.project.append(contentsOf: ProjectChecks.developmentRegion(
+                catalogs: catalogs,
+                configuration: workspace.configuration
+            ))
+            report.project.append(contentsOf: ProjectChecks.languageCoverage(catalogs))
+            // Inferred targets share source directories, so one Info.plist is
+            // otherwise found once per target that happens to contain it.
+            var seenProject = Set<String>()
+            report.project = report.project.filter {
+                seenProject.insert("\($0.rule.rawValue)\u{1}\($0.detail)").inserted
+            }
+        }
         report.diagnostics = workspace.diagnostics
 
         if let templatePath = options.templatePath {

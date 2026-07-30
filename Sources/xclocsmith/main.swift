@@ -46,6 +46,40 @@ func emit(_ report: some Report, json: Bool, text: @autoclosure () -> String, st
     )
 }
 
+
+/// Applies a baseline, or writes one, when the command was asked to.
+///
+/// Returns nil when no baseline is involved, so the normal reporting path is
+/// untouched for everyone who never asks for one.
+func applyBaseline(
+    _ parsed: ParsedCommand,
+    command: String,
+    report: some Report,
+    configuration: Configuration
+) throws -> BaselinedReport? {
+    let explicit = parsed.value(Flags.baseline)
+    let updating = parsed.isSet(Flags.updateBaseline)
+    guard explicit != nil || updating else { return nil }
+
+    let path = configuration.absolute(explicit ?? Baseline.fileName)
+    let findings = report.findings
+
+    if updating {
+        let baseline = Baseline(findings: findings)
+        try baseline.write(to: path, toolVersion: toolVersion)
+        // Everything is accepted, so nothing is reported and the run is clean —
+        // which is the point of the command, and is said out loud rather than
+        // presented as a project with no problems.
+        return BaselinedReport(
+            command: command,
+            result: Baseline.Result(reported: [], suppressed: findings.count, stale: []),
+            written: configuration.display(path)
+        )
+    }
+    let baseline = try Baseline.load(path: path)
+    return BaselinedReport(command: command, result: baseline.apply(to: findings))
+}
+
 func makeConfiguration(_ parsed: ParsedCommand) throws -> Configuration {
     var configuration = try Configuration.load(
         explicitPath: parsed.value(Flags.config),
@@ -151,6 +185,17 @@ func run() -> Int32 {
             )
             let catalogs = catalogArguments(parsed)
             let report = try command.run(catalogPaths: catalogs.isEmpty ? nil : catalogs)
+            if let baselined = try applyBaseline(
+                parsed, command: "check", report: report, configuration: configuration
+            ) {
+                return emit(
+                    baselined,
+                    format: format,
+                    configuration: configuration,
+                    text: renderer.render(baselined),
+                    strict: strict
+                )
+            }
             return emit(
                 report,
                 format: format,
@@ -181,6 +226,17 @@ func run() -> Int32 {
                 )
             )
             let report = try command.run()
+            if let baselined = try applyBaseline(
+                parsed, command: "scan", report: report, configuration: configuration
+            ) {
+                return emit(
+                    baselined,
+                    format: format,
+                    configuration: configuration,
+                    text: renderer.render(baselined),
+                    strict: strict
+                )
+            }
             return emit(
                 report,
                 format: format,

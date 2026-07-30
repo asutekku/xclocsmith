@@ -196,11 +196,13 @@ public struct CatalogReport: Equatable, Sendable {
 
 public struct CheckReport: Report {
     public var catalogs: [CatalogReport] = []
+    /// Findings about the project rather than about one catalog.
+    public var project: [ProjectFinding] = []
     public var diagnostics: [DiagnosticError] = []
     public var templatesWritten: [String] = []
 
     public var failures: Int {
-        var total = diagnostics.count
+        var total = diagnostics.count + project.filter(\.isFailure).count
         for catalog in catalogs {
             for coverage in catalog.coverage where !coverage.isSourceLanguage {
                 total += coverage.missing.count + coverage.empty.count
@@ -217,7 +219,7 @@ public struct CheckReport: Report {
     }
 
     public var advisories: Int {
-        catalogs.reduce(0) { total, catalog in
+        project.filter { !$0.isFailure }.count + catalogs.reduce(0) { total, catalog in
             total
                 + catalog.similarKeys.count
                 // Advisory, not a failure: "Free" the price and "Free" the
@@ -236,6 +238,15 @@ public struct CheckReport: Report {
         .object([
             "command": .string("check"),
             "catalogs": .array(catalogs.map(\.jsonValue)),
+            "project": .array(project.map { finding in
+                var fields: [String: JSONValue] = [
+                    "rule": .string(finding.rule.rawValue),
+                    "detail": .string(finding.detail),
+                    "isFailure": .bool(finding.isFailure),
+                ]
+                if let file = finding.file { fields["file"] = .string(file) }
+                return .object(fields)
+            }),
             "diagnostics": .array(diagnostics.map { diagnostic in
                 .object(["path": .string(diagnostic.path), "message": .string(diagnostic.message)])
             }),

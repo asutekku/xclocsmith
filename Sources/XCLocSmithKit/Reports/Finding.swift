@@ -27,6 +27,11 @@ public struct Finding: Equatable, Sendable {
     /// from the message so a renderer can find the line the key is declared on;
     /// a catalog finding has no line until somebody goes looking for it.
     public let key: String?
+    /// The language the defect is in, where it is about one language. Carried
+    /// as a field rather than only inside the message so a baseline can be
+    /// keyed on it — a fingerprint built from prose stops matching the moment
+    /// somebody improves the wording of a message.
+    public let language: String?
 
     public init(
         rule: String,
@@ -34,7 +39,8 @@ public struct Finding: Equatable, Sendable {
         message: String,
         file: String? = nil,
         line: Int? = nil,
-        key: String? = nil
+        key: String? = nil,
+        language: String? = nil
     ) {
         self.rule = rule
         self.level = level
@@ -42,6 +48,18 @@ public struct Finding: Equatable, Sendable {
         self.file = file
         self.line = line
         self.key = key
+        self.language = language
+    }
+
+    /// What makes this finding *this* finding, for suppression.
+    ///
+    /// Rule, file, subject and language — never the message, the line, or the
+    /// severity. A line number moves when somebody adds a string above it; a
+    /// message changes when this tool improves its wording; a severity changes
+    /// when the project changes its mind. None of those mean the defect is a
+    /// different defect.
+    public var identity: BaselineEntry {
+        BaselineEntry(rule: rule, file: file ?? "", key: key ?? "", language: language ?? "")
     }
 }
 
@@ -68,7 +86,8 @@ extension CheckReport {
                         level: .error,
                         message: "\"\(key)\" has no \(coverage.language) translation.",
                         file: file,
-                        key: key
+                        key: key,
+                        language: coverage.language
                     ))
                 }
                 for key in coverage.empty {
@@ -77,7 +96,8 @@ extension CheckReport {
                         level: .error,
                         message: "\"\(key)\" has an empty \(coverage.language) translation.",
                         file: file,
-                        key: key
+                        key: key,
+                        language: coverage.language
                     ))
                 }
                 for key in coverage.needsReview {
@@ -87,7 +107,8 @@ extension CheckReport {
                         message: "\"\(key)\" is \(coverage.language) needs_review — machine translation, "
                             + "or a source string that changed after it was translated.",
                         file: file,
-                        key: key
+                        key: key,
+                        language: coverage.language
                     ))
                 }
                 for key in coverage.identicalToSource {
@@ -96,7 +117,8 @@ extension CheckReport {
                         level: .warning,
                         message: "\"\(key)\" is identical in \(coverage.language) and the source language.",
                         file: file,
-                        key: key
+                        key: key,
+                        language: coverage.language
                     ))
                 }
             }
@@ -123,7 +145,8 @@ extension CheckReport {
                     level: .error,
                     message: message,
                     file: file,
-                    key: mismatch.key
+                    key: mismatch.key,
+                    language: mismatch.language
                 ))
             }
 
@@ -135,7 +158,8 @@ extension CheckReport {
                         + "\"\(violation.expected)\", but \"\(violation.source)\" was translated "
                         + "\"\(violation.translation)\".",
                     file: file,
-                    key: violation.key
+                    key: violation.key,
+                    language: violation.language
                 ))
             }
 
@@ -145,7 +169,8 @@ extension CheckReport {
                     level: finding.isFailure ? .error : .warning,
                     message: "[\(finding.language)] \"\(finding.key)\": \(finding.detail)",
                     file: file,
-                    key: finding.key
+                    key: finding.key,
+                    language: finding.language
                 ))
             }
 
@@ -217,6 +242,14 @@ extension CheckReport {
             }
         }
 
+        for finding in project {
+            findings.append(Finding(
+                rule: finding.rule.rawValue,
+                level: finding.isFailure ? .error : .warning,
+                message: finding.detail,
+                file: finding.file
+            ))
+        }
         findings.append(contentsOf: diagnostics.map(\.finding))
         return findings
     }
@@ -235,7 +268,8 @@ extension ScanReport {
                 message: "\"\(missing.value)\" is shown to the user but is in no catalog "
                     + "(expected in \(missing.catalog)).",
                 file: missing.file,
-                line: missing.line
+                line: missing.line,
+                key: missing.value
             ))
         }
         for finding in untranslated {
@@ -245,7 +279,9 @@ extension ScanReport {
                 message: "\"\(finding.value)\" has no \(finding.language) translation "
                     + "in \(finding.catalog).",
                 file: finding.file,
-                line: finding.line
+                line: finding.line,
+                key: finding.value,
+                language: finding.language
             ))
         }
         for bypass in bypasses {
@@ -254,7 +290,8 @@ extension ScanReport {
                 level: .warning,
                 message: "\(bypass.reason): \(bypass.snippet)",
                 file: bypass.file,
-                line: bypass.line
+                line: bypass.line,
+                key: bypass.snippet
             ))
         }
         for orphan in orphans {

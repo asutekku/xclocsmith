@@ -209,6 +209,9 @@ enum RuleCatalogue {
         "placeholder-translation": ("A dash or a note-to-self where a translation should be.", "error"),
         "ellipsis-style": ("A source string uses three full stops where the typographic ellipsis belongs.", "warning"),
         "unordered-specifiers": ("A source string has specifiers no translation can reorder.", "warning"),
+        "info-plist-not-localized": ("An Info.plist string users read has no catalog entry.", "warning"),
+        "development-region-mismatch": ("The bundle's development region is not the catalog's source language.", "warning"),
+        "language-coverage-gap": ("A catalog ships fewer languages than the project's other catalogs.", "warning"),
         "configuration": ("A file could not be read, or the project is misconfigured.", "error"),
     ]
 

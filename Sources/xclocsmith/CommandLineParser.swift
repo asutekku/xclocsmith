@@ -46,6 +46,14 @@ enum Flags {
     static let includeFormatKeys = Flag.bool("--include-format-keys", "Consider keys containing %@ / %lld when reporting orphans.")
     static let threshold = Flag.value("--threshold", "Near-duplicate threshold, 50–99 (default 85).")
     static let files = Flag.value("--files", "Report only these source files; repeatable or comma-separated.")
+    static let baseline = Flag.value(
+        "--baseline",
+        "Accept the findings recorded in this file (default \(Baseline.fileName))."
+    )
+    static let updateBaseline = Flag.bool(
+        "--update-baseline",
+        "Record every current finding as accepted, and write the file."
+    )
 }
 
 struct CommandSpec {

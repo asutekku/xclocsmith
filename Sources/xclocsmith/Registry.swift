@@ -10,7 +10,8 @@ enum Registry {
         usage: "xclocsmith check [catalog.xcstrings ...]",
         flags: [
             Flags.lang, Flags.config, Flags.noConfig, Flags.json, Flags.format,
-            Flags.strict, Flags.out, Flags.threshold,
+            Flags.strict, Flags.out, Flags.threshold, Flags.baseline,
+            Flags.updateBaseline,
         ],
         discussion: """
             Reports, per catalog and language: missing and empty translations,
@@ -29,7 +30,8 @@ enum Registry {
         flags: [
             Flags.lang, Flags.config, Flags.noConfig, Flags.json, Flags.format,
             Flags.strict, Flags.out, Flags.template, Flags.noTemplate,
-            Flags.previews, Flags.includeFormatKeys, Flags.files,
+            Flags.previews, Flags.includeFormatKeys, Flags.files, Flags.baseline,
+            Flags.updateBaseline,
         ],
         discussion: """
             Resolves each call to the table it asks for, so a key in Errors.xcstrings

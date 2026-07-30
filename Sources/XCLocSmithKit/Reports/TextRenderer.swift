@@ -212,9 +212,79 @@ public struct TextRenderer {
             lines.append("")
         }
 
+        if !report.project.isEmpty {
+            for failing in [true, false] {
+                let group = report.project.filter { $0.isFailure == failing }
+                guard !group.isEmpty else { continue }
+                lines.append("\(failing ? "FAIL" : "note")  project (\(group.count)):")
+                for finding in group.prefix(maximumListLength) {
+                    lines.append("  - \(finding.rule.rawValue): \(escaped(finding.detail))")
+                }
+                if group.count > maximumListLength {
+                    lines.append("  … and \(group.count - maximumListLength) more")
+                }
+                lines.append("")
+            }
+        }
+
         lines.append(contentsOf: renderDiagnostics(report.diagnostics))
         for path in report.templatesWritten {
             lines.append("Wrote \(path)")
+        }
+        lines.append(summary(failures: report.failures, advisories: report.advisories))
+        return lines.joined(separator: "\n")
+    }
+
+    // MARK: - baseline
+
+    /// A run with a baseline applied renders from the flat finding list rather
+    /// than from the report's own shape. The grouped output is nicer, but it
+    /// would show findings the baseline just accepted, and a report that
+    /// contradicts its own exit code is worse than a plainer one.
+    public func render(_ report: BaselinedReport) -> String {
+        var lines: [String] = []
+
+        var byRule: [String: [Finding]] = [:]
+        for finding in report.findings { byRule[finding.rule, default: []].append(finding) }
+
+        for level in [Finding.Level.error, .warning, .note] {
+            let rules = byRule.keys.filter { byRule[$0]?.first(where: { $0.level == level }) != nil }
+            for rule in rules.sorted() {
+                let findings = (byRule[rule] ?? []).filter { $0.level == level }
+                guard !findings.isEmpty else { continue }
+                lines.append("\(level == .error ? "FAIL" : "note")  \(rule) (\(findings.count)):")
+                for finding in findings.prefix(maximumListLength) {
+                    let place = finding.file.map { file in
+                        finding.line.map { "\(file):\($0)" } ?? file
+                    } ?? ""
+                    lines.append("  \(place)  \(escaped(finding.message))")
+                }
+                if findings.count > maximumListLength {
+                    lines.append("  … and \(findings.count - maximumListLength) more")
+                }
+                lines.append("")
+            }
+        }
+
+        if let written = report.written {
+            lines.append("Wrote \(written) — \(report.suppressed + report.findings.count) finding(s) accepted.")
+        } else if report.suppressed > 0 {
+            lines.append("\(report.suppressed) finding(s) accepted by the baseline.")
+        }
+        if !report.stale.isEmpty {
+            // A baseline nobody prunes stops being a ratchet and becomes a
+            // drawer, so entries that no longer match anything are named.
+            lines.append(
+                "\(report.stale.count) baseline entr(y/ies) matched nothing — those defects are "
+                    + "fixed or moved. Re-run with --update-baseline to drop them."
+            )
+            for entry in report.stale.prefix(10) {
+                let language = entry.language.isEmpty ? "" : " [\(entry.language)]"
+                lines.append("  - \(entry.rule)\(language) \(escaped(entry.key)) in \(entry.file)")
+            }
+            if report.stale.count > 10 {
+                lines.append("  … and \(report.stale.count - 10) more")
+            }
         }
         lines.append(summary(failures: report.failures, advisories: report.advisories))
         return lines.joined(separator: "\n")

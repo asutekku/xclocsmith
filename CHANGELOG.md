@@ -83,6 +83,25 @@ First release.
   them, and reduplicating languages are exempt from the doubled-word rule.
 - Findings that mean text was lost or markup broke fail; the rest advise.
 
+### The project around the catalogs
+
+- Info.plist strings that reach no `InfoPlist.xcstrings`, read from both the
+  plist file and the `INFOPLIST_KEY_…` build settings. Only permission
+  descriptions and `CFBundleDisplayName` count.
+- Catalogs shipping fewer languages than the project's other catalogs, which is
+  invisible in Xcode because iOS resolves a language per bundle.
+- The bundle's development region against each catalog's source language.
+
+### Baselines
+
+- `--update-baseline` records every current finding as accepted; `--baseline`
+  reports only what is not in the file, so a project with history can turn the
+  checks on today and fail on tomorrow's defects.
+- Findings are identified by rule, file, subject and language — never by line,
+  message or severity, none of which make a defect a different defect.
+- The file is sorted readable JSON, one entry per finding, no globs. Entries
+  matching nothing are reported so the file can be tightened.
+
 ### Reviewing
 
 - `diff` compares catalogs against a git ref, or two files against each other,
