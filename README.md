@@ -114,6 +114,40 @@ phrases, which never appear in source, and offering to delete
 `NSCameraUsageDescription` would be a good way to lose your camera permission
 string.
 
+## Localization catalogs (`.xcloc`)
+
+When a vendor or an agent returns an Xcode Localization Catalog, the risky moment
+is the import: `xcodebuild -importLocalizations` warns about untranslated files,
+but it does not compare format specifiers, so a `%@` where your code passes an
+integer goes straight into the app.
+
+```bash
+xclocsmith xcloc check ja.xcloc      # validate before importing — reads only
+xclocsmith xcloc apply ja.xcloc      # report what it would import
+xclocsmith xcloc apply ja.xcloc --apply
+```
+
+`xcloc check` reports:
+
+- format specifiers in each `<target>` that disagree with its `<source>`;
+- plural units missing the categories the target language requires;
+- `contents.json` and the XLIFF disagreeing about the target language;
+- machine-translated units (Xcode's agent workflow marks them
+  `state-qualifier="leveraged-mt"`) so they can be reviewed before shipping;
+- units whose key is in none of your catalogs, and catalog keys the bundle omits.
+
+`xcloc apply` is `-importLocalizations` without a project or a build. It routes
+each `<file>` element to the catalog for its table — Xcode names them
+`[table].strings` even when the strings came from a `.xcstrings` — merges into
+the existing structure rather than replacing it, and maps XLIFF states onto
+catalog states. Machine translation is imported as `needs_review` whatever its
+state claims, because one marked `translated` is one nobody looks at again.
+
+Two things it will not do: **invent keys** (an XLIFF translates a catalog, it
+does not extend one) and **guess at a variation it does not recognise**. Both are
+reported and skipped. A bare `.xliff` works too, since localizers often return
+just that.
+
 ## Editing catalogs safely
 
 `add` and `set` merge into the existing structure. They refuse, rather than
@@ -251,6 +285,8 @@ esac
 | `add` | Applies a payload of translations. |
 | `set` | Sets one translation. |
 | `lookup` | Finds existing keys, so a project does not grow three spellings of "Save". |
+| `xcloc check` | Validates an `.xcloc` or `.xliff` before you import it. |
+| `xcloc apply` | Imports an `.xcloc` or `.xliff` into your catalogs. |
 | `init` | Writes `.xclocsmith.json`. |
 
 `xclocsmith <command> --help` lists exactly the flags that command accepts.
@@ -276,8 +312,10 @@ the catalog come from the command line. `-` reads the payload from stdin.
 
 ## Deliberately out of scope
 
-- **`.xcloc` bundles, `xcodebuild -exportLocalizations`/`-importLocalizations`** —
-  the translator round-trip is Xcode's, and it works.
+- **Producing `.xcloc` bundles** — `xcodebuild -exportLocalizations` builds your
+  project to gather strings from storyboards, Info.plist and asset catalogs too,
+  which no linter should try to reproduce. Reading and applying a bundle is
+  supported; creating one is Xcode's job.
 - **`.strings` / `.stringsdict` migration** — Xcode's built-in migrator owns
   this. Such files are only ever read as reference text, never rewritten.
 - **Compiling catalogs or generating symbols** — that is `xcstringstool compile`

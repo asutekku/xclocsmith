@@ -260,6 +260,19 @@ public struct WriteReport: Report {
         case registered, translated, updated, skipped, removed
     }
 
+    /// Why a key was not written. The reason travels with the key: "not in the
+    /// catalog" and "would destroy plural variations" call for different fixes,
+    /// and one message for both sends people to the wrong one.
+    public struct Refusal: Equatable, Sendable {
+        public let key: String
+        public let reason: String
+
+        public init(key: String, reason: String) {
+            self.key = key
+            self.reason = reason
+        }
+    }
+
     public struct Change: Equatable, Sendable {
         public let key: String
         public let action: String
@@ -276,7 +289,7 @@ public struct WriteReport: Report {
     public var language: String?
     public var changes: [Change] = []
     public var conflicts: [(key: String, existing: String)] = []
-    public var refusals: [String] = []
+    public var refusals: [Refusal] = []
     public var dryRun = false
 
     public init(catalog: String, language: String? = nil) {
@@ -306,7 +319,9 @@ public struct WriteReport: Report {
             "caseConflicts": .array(conflicts.map { conflict in
                 .object(["key": .string(conflict.key), "existing": .string(conflict.existing)])
             }),
-            "refusals": .array(refusals.map { .string($0) }),
+            "refusals": .array(refusals.map { refusal in
+                .object(["key": .string(refusal.key), "reason": .string(refusal.reason)])
+            }),
             "failures": .number("\(failures)"),
         ]
         if let language { fields["language"] = .string(language) }

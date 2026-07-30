@@ -62,12 +62,32 @@ func run() -> Int32 {
         print(toolVersion)
         return exitClean
     }
-    guard let spec = Registry.command(named: first) else {
-        printError("unknown command \"\(first)\". Run `xclocsmith --help`.")
-        return exitError
-    }
+    var spec: CommandSpec
+    var rest: [String]
 
-    let rest = Array(arguments.dropFirst())
+    if first == "xcloc" {
+        let actions = Registry.xclocActions.map { $0.name.replacingOccurrences(of: "xcloc ", with: "") }
+        guard let action = arguments.dropFirst().first, !action.hasPrefix("-") else {
+            print("Usage: xclocsmith xcloc <\(actions.joined(separator: "|"))> <bundle.xcloc|file.xliff>")
+            for command in Registry.xclocActions {
+                print("  \(command.name.replacingOccurrences(of: "xcloc ", with: ""))  \(command.summary)")
+            }
+            return exitError
+        }
+        guard let resolved = Registry.xclocAction(named: action) else {
+            printError("unknown xcloc action \"\(action)\" (expected: \(actions.joined(separator: ", ")))")
+            return exitError
+        }
+        spec = resolved
+        rest = Array(arguments.dropFirst(2))
+    } else {
+        guard let resolved = Registry.command(named: first) else {
+            printError("unknown command \"\(first)\". Run `xclocsmith --help`.")
+            return exitError
+        }
+        spec = resolved
+        rest = Array(arguments.dropFirst())
+    }
     if rest.contains("--help") || rest.contains("-h") {
         print(Help.command(spec))
         return exitClean
@@ -203,6 +223,45 @@ func run() -> Int32 {
             let catalogs = catalogArguments(parsed)
             let reports = try command.run(queries: queries, catalogPaths: catalogs.isEmpty ? nil : catalogs)
             return emit(reports, json: json, text: renderer.render(reports), strict: strict)
+
+        case "xcloc check":
+            let configuration = try makeConfiguration(parsed)
+            guard let bundle = parsed.positionals.first else {
+                throw SmithError.usage("usage: \(spec.usage)")
+            }
+            var command = XclocCheckCommand(workspace: Workspace(configuration: configuration))
+            let report = try command.run(bundlePath: bundle)
+            return emit(report, json: json, text: renderer.render(report), strict: strict)
+
+        case "xcloc apply":
+            let configuration = try makeConfiguration(parsed)
+            guard let bundle = parsed.positionals.first else {
+                throw SmithError.usage("usage: \(spec.usage)")
+            }
+            if parsed.isSet(Flags.dryRun) && parsed.isSet(Flags.apply) {
+                throw SmithError.usage("--dry-run and --apply contradict each other")
+            }
+            var command = XclocApplyCommand(
+                workspace: Workspace(configuration: configuration),
+                options: .init(
+                    dryRun: !parsed.isSet(Flags.apply),
+                    language: CommandLineParser.languages(parsed).first
+                )
+            )
+            let reports = try command.run(bundlePath: bundle)
+            if json {
+                print(JSONWriter.text(.object([
+                    "command": .string("xcloc apply"),
+                    "catalogs": .array(reports.map(\.jsonValue)),
+                    "failures": .number("\(reports.reduce(0) { $0 + $1.failures })"),
+                ]), style: .plain), terminator: "")
+            } else {
+                print(reports.map(renderer.render).joined(separator: "\n"))
+                if !parsed.isSet(Flags.apply) {
+                    print("Nothing was written. Re-run with --apply to import these translations.")
+                }
+            }
+            return reports.contains { $0.failures > 0 } ? exitFindings : exitClean
 
         case "init":
             let result = try InitCommand(

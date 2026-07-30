@@ -360,6 +360,74 @@ public struct Catalog {
         strings[key] = .object(entry)
     }
 
+    /// Writes one device variation (`iphone`, `ipad`, `mac`, `other`, …).
+    public mutating func setDeviceTranslation(
+        key: String,
+        language: String,
+        device: String,
+        value: String,
+        state: TranslationState
+    ) {
+        var entry = strings[key]?.objectValue ?? [:]
+        var localizations = entry["localizations"]?.objectValue ?? [:]
+        var localization = localizations[language]?.objectValue ?? [:]
+        var variations = localization["variations"]?.objectValue ?? [:]
+        var devices = variations["device"]?.objectValue ?? [:]
+
+        var deviceEntry = devices[device]?.objectValue ?? [:]
+        deviceEntry["stringUnit"] = .object([
+            "state": .string(state.rawValue),
+            "value": .string(value),
+        ])
+        devices[device] = .object(deviceEntry)
+        variations["device"] = .object(devices)
+        localization["variations"] = .object(variations)
+        localization.removeValue(forKey: "stringUnit")
+        localizations[language] = .object(localization)
+        entry["localizations"] = .object(localizations)
+        strings[key] = .object(entry)
+    }
+
+    /// Writes one plural case inside an existing substitution.
+    ///
+    /// Returns `false` when no such substitution is declared: creating one needs
+    /// an `argNum` and a `formatSpecifier` that an XLIFF unit does not carry,
+    /// and inventing them would produce a catalog Xcode cannot format.
+    @discardableResult
+    public mutating func setSubstitutionPluralTranslation(
+        key: String,
+        language: String,
+        substitution: String,
+        category: String,
+        value: String,
+        state: TranslationState
+    ) -> Bool {
+        guard var entry = strings[key]?.objectValue,
+              var localizations = entry["localizations"]?.objectValue,
+              var localization = localizations[language]?.objectValue,
+              var substitutions = localization["substitutions"]?.objectValue,
+              var target = substitutions[substitution]?.objectValue else {
+            return false
+        }
+
+        var variations = target["variations"]?.objectValue ?? [:]
+        var plural = variations["plural"]?.objectValue ?? [:]
+        var categoryEntry = plural[category]?.objectValue ?? [:]
+        categoryEntry["stringUnit"] = .object([
+            "state": .string(state.rawValue),
+            "value": .string(value),
+        ])
+        plural[category] = .object(categoryEntry)
+        variations["plural"] = .object(plural)
+        target["variations"] = .object(variations)
+        substitutions[substitution] = .object(target)
+        localization["substitutions"] = .object(substitutions)
+        localizations[language] = .object(localization)
+        entry["localizations"] = .object(localizations)
+        strings[key] = .object(entry)
+        return true
+    }
+
     public mutating func remove(_ key: String) {
         strings.removeValue(forKey: key)
     }

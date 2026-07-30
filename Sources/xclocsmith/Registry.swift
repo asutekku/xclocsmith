@@ -104,7 +104,40 @@ enum Registry {
         discussion: nil
     )
 
-    static let all: [CommandSpec] = [check, scan, prune, add, set, lookup, initialize]
+    static let xclocCheck = CommandSpec(
+        name: "xcloc check",
+        summary: "Validate a localization catalog (.xcloc) or XLIFF before importing it.",
+        usage: "xclocsmith xcloc check <bundle.xcloc|file.xliff>",
+        flags: [Flags.lang, Flags.config, Flags.noConfig, Flags.json, Flags.strict],
+        discussion: """
+            Checks what Xcode's import does not: format specifiers in each
+            translation against its source, plural units against the categories
+            the target language requires, machine-translated units, and units
+            whose key is in no catalog of this project.
+
+            Reads only. Accepts a bare .xliff, since localizers often return one.
+            """
+    )
+
+    static let xclocApply = CommandSpec(
+        name: "xcloc apply",
+        summary: "Apply a localization catalog to this project's string catalogs.",
+        usage: "xclocsmith xcloc apply <bundle.xcloc|file.xliff> [--apply]",
+        flags: [Flags.lang, Flags.config, Flags.noConfig, Flags.json, Flags.apply, Flags.dryRun],
+        discussion: """
+            `xcodebuild -importLocalizations` without a project or a build.
+            Routes each <file> element to the catalog for its table, merges into
+            the existing structure, and maps XLIFF states onto catalog states —
+            machine translation is imported as needs_review whatever it claims.
+
+            Never invents keys: an XLIFF translates a catalog, it does not extend
+            one. Reports without writing unless --apply is given.
+            """
+    )
+
+    static let xclocActions: [CommandSpec] = [xclocCheck, xclocApply]
+
+    static let all: [CommandSpec] = [check, scan, prune, add, set, lookup, xclocCheck, xclocApply, initialize]
 
     static var allFlags: Set<String> {
         Set(all.flatMap { $0.flags.map(\.name) })
@@ -112,6 +145,10 @@ enum Registry {
 
     static func command(named name: String) -> CommandSpec? {
         all.first { $0.name == name }
+    }
+
+    static func xclocAction(named name: String) -> CommandSpec? {
+        xclocActions.first { $0.name == "xcloc \(name)" }
     }
 }
 

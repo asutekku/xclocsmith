@@ -50,6 +50,18 @@ First release.
   remove more than a quarter of a catalog without `--force`.
 - Output is byte-identical to Xcode's own formatting.
 
+### Localization catalogs
+
+- `xcloc check` validates an `.xcloc` bundle or bare `.xliff` before import:
+  format specifiers against the source, plural completeness for the target
+  language, machine-translated units, metadata disagreements, and units whose
+  key is in no catalog.
+- `xcloc apply` imports a bundle without a project or a build, routing each
+  `<file>` element to its table's catalog, merging rather than replacing, and
+  importing machine translation as `needs_review`.
+- Never invents keys and never guesses at an unrecognised variation; both are
+  reported and skipped.
+
 ### Interface
 
 - `--json` on every command, rendered from the same report as the text output.

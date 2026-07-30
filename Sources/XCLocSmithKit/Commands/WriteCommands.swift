@@ -74,7 +74,7 @@ public struct AddCommand {
             let isNew = catalog.strings[key] == nil
             if isNew {
                 guard options.createKeys else {
-                    report.refusals.append(key)
+                    report.refusals.append(.init(key: key, reason: "not in the catalog and --create was not given"))
                     continue
                 }
                 if let existing = byLowercase[key.lowercased()], existing != key {
@@ -142,8 +142,8 @@ public struct AddCommand {
             )
             report.changes.append(.init(key: key, action: existed ? .updated : .translated))
         } catch let error as SmithError {
-            guard case .wouldDiscardStructure = error else { throw error }
-            report.refusals.append(key)
+            guard case .wouldDiscardStructure(_, _, let structure) = error else { throw error }
+            report.refusals.append(.init(key: key, reason: "holds \(structure); pass --flatten to overwrite"))
         }
     }
 }
@@ -251,7 +251,10 @@ public struct PruneCommand {
 
             let ratio = Double(orphan.keys.count) / Double(max(catalog.keys.count, 1))
             if ratio > Self.refusalRatio && !options.force {
-                report.refusals = orphan.keys
+                let percent = Int(ratio * 100)
+                report.refusals = orphan.keys.map {
+                    .init(key: $0, reason: "would remove \(percent)% of this catalog; pass --force if that is intended")
+                }
                 planned.append((catalog, [], report))
                 continue
             }

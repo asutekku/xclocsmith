@@ -228,8 +228,11 @@ public struct TextRenderer {
         if !report.refusals.isEmpty {
             lines.append("")
             lines.append("FAIL  \(report.refusals.count) key(s) not written:")
-            lines.append(contentsOf: list(report.refusals, indent: "  "))
-            lines.append("  These hold plural variations or substitutions. Edit them in Xcode, or pass --flatten.")
+            let grouped = Dictionary(grouping: report.refusals, by: \.reason)
+            for reason in grouped.keys.sorted() {
+                lines.append("  \(reason):")
+                lines.append(contentsOf: list((grouped[reason] ?? []).map(\.key), indent: "    "))
+            }
         }
         return lines.joined(separator: "\n")
     }
@@ -253,6 +256,76 @@ public struct TextRenderer {
             }
             lines.append("")
         }
+        return lines.joined(separator: "\n")
+    }
+
+    // MARK: - xcloc
+
+    public func render(_ report: XclocCheckReport) -> String {
+        var lines: [String] = []
+        let language = report.targetLanguage ?? "unknown language"
+        lines.append("\(report.bundle)  (\(language))")
+        lines.append("  \(report.unitCount) unit(s), \(report.translatedCount) translated")
+        lines.append("")
+
+        if !report.metadataProblems.isEmpty {
+            lines.append("FAIL  catalog metadata (\(report.metadataProblems.count)):")
+            for problem in report.metadataProblems { lines.append("  \(problem)") }
+            lines.append("")
+        }
+
+        if !report.formatMismatches.isEmpty {
+            lines.append("FAIL  format specifiers disagree with the source (\(report.formatMismatches.count)):")
+            for finding in report.formatMismatches.prefix(maximumListLength) {
+                lines.append("  \(finding.file):\(finding.line)  \"\(escaped(finding.unitID))\"")
+                lines.append("      \(finding.problem)")
+            }
+            lines.append("")
+        }
+
+        if !report.pluralGaps.isEmpty {
+            lines.append("FAIL  incomplete plurals (\(report.pluralGaps.count)):")
+            for finding in report.pluralGaps.prefix(maximumListLength) {
+                lines.append("  \"\(escaped(finding.unitID))\" — \(finding.problem)")
+            }
+            lines.append("")
+        }
+
+        if !report.untranslated.isEmpty {
+            lines.append("note  untranslated units (\(report.untranslated.count)):")
+            lines.append(contentsOf: list(report.untranslated.prefix(maximumListLength).map(\.unitID), indent: "  "))
+            lines.append("")
+        }
+
+        if !report.machineTranslated.isEmpty {
+            lines.append("note  machine-translated units (\(report.machineTranslated.count)) — review before shipping:")
+            lines.append(contentsOf: list(report.machineTranslated.prefix(maximumListLength).map(\.unitID), indent: "  "))
+            lines.append("")
+        }
+
+        if !report.unsupportedUnits.isEmpty {
+            lines.append("note  units this tool cannot apply (\(report.unsupportedUnits.count)):")
+            for finding in report.unsupportedUnits.prefix(maximumListLength) {
+                lines.append("  \"\(escaped(finding.unitID))\" — \(finding.problem)")
+            }
+            lines.append("")
+        }
+
+        if !report.unknownKeys.isEmpty {
+            lines.append("note  units with no matching key in this project (\(report.unknownKeys.count)):")
+            for finding in report.unknownKeys.prefix(maximumListLength) {
+                lines.append("  \"\(escaped(finding.unitID))\" — \(finding.problem)")
+            }
+            lines.append("")
+        }
+
+        if !report.missingFromBundle.isEmpty {
+            lines.append("note  catalog keys absent from this bundle (\(report.missingFromBundle.count)):")
+            lines.append(contentsOf: list(report.missingFromBundle, indent: "  "))
+            lines.append("")
+        }
+
+        lines.append(summary(failures: report.failures, advisories: report.advisories))
         return lines.joined(separator: "\n")
     }
 
