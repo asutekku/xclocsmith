@@ -134,14 +134,38 @@ public struct TranslationPayload {
     }
 
     /// Writes a `"TODO"` template ready to be filled in and applied.
+    ///
+    /// A key the source pluralises is written as the plural shape the *target*
+    /// language needs, not as a flat `"TODO"`:
+    ///
+    /// ```json
+    /// "%lld items": { "plural": { "one": "TODO", "few": "TODO",
+    ///                             "many": "TODO", "other": "TODO" } }
+    /// ```
+    ///
+    /// Whoever fills this in — a translator or a model — cannot be expected to
+    /// know that Russian needs four forms and Japanese one. Asking for a flat
+    /// string and then failing the result is a worse tool than asking for the
+    /// right shape in the first place.
     public static func writeTemplate(
         keys: [String],
         catalog: String,
         language: String,
+        pluralKeys: Set<String> = [],
         to path: String
     ) throws {
         var strings: [String: JSONValue] = [:]
-        for key in keys { strings[key] = .string(todoMarker) }
+        for key in keys {
+            guard pluralKeys.contains(key) else {
+                strings[key] = .string(todoMarker)
+                continue
+            }
+            var categories: [String: JSONValue] = [:]
+            for category in PluralRules.categories(for: language).required {
+                categories[category] = .string(todoMarker)
+            }
+            strings[key] = .object(["plural": .object(categories)])
+        }
         let document = JSONValue.object([
             "format": .string(formatIdentifier),
             "catalog": .string(catalog),

@@ -299,6 +299,25 @@ final class RealWorldTests: XCTestCase {
         XCTAssertEqual(result.strings.map(\.value), [])
     }
 
+    /// One string cannot serve four grammatical numbers. A flat Russian
+    /// translation of a pluralised key is incomplete, however filled-in the
+    /// coverage percentage looks — this is what a model writes when handed a
+    /// bare `"TODO"`, and the check that makes the loop safe to automate.
+    func testFlatTranslationOfAPluralisedKeyIsIncomplete() throws {
+        let catalog = try makeCatalog(strings: [
+            "%lld items": .object(["localizations": .object([
+                "en": plural(["one": "1 item", "other": "%lld items"]),
+                "ru": unit("%lld предметов"),
+                "ja": unit("%lld個"),
+            ])]),
+        ])
+        let gaps = try check(catalog, languages: ["ru", "ja"]).catalogs[0].pluralGaps
+        XCTAssertEqual(gaps.map(\.language), ["ru"])
+        XCTAssertEqual(gaps.first?.missingCategories, ["one", "few", "many", "other"])
+        // Japanese requires `other` alone, so a flat string is exactly
+        // equivalent and must not be reported.
+    }
+
     // MARK: - Helpers
 
     /// The catalog keys `scan` would demand for a fragment of Swift.

@@ -160,6 +160,18 @@ public struct Catalog {
         return .missing
     }
 
+    /// True when this language's entry carries plural variations, at the top
+    /// level or inside a substitution.
+    public func isPluralised(_ key: String, _ language: String) -> Bool {
+        guard let localization = localization(key, language) else { return false }
+        func walk(_ value: JSONValue) -> Bool {
+            guard case .object(let fields) = value else { return false }
+            if fields["variations"]?.objectValue?["plural"] != nil { return true }
+            return fields.values.contains { walk($0) }
+        }
+        return walk(.object(localization))
+    }
+
     /// Required CLDR categories that are absent, or present with an empty value.
     /// Device variations are checked for `other`, which is the only guaranteed key.
     private func missingPluralCategories(_ localization: [String: JSONValue], language: String) -> [String] {

@@ -44,7 +44,9 @@ public struct CheckCommand {
                 let language: String
             }
             var buckets: [Bucket: [String]] = [:]
+            var pluralisedByCatalog: [String: Set<String>] = [:]
             for catalogReport in report.catalogs {
+                pluralisedByCatalog[catalogReport.path] = Set(catalogReport.pluralisedKeys)
                 for coverage in catalogReport.coverage where !coverage.isSourceLanguage {
                     let outstanding = (coverage.missing + coverage.empty).sorted()
                     guard !outstanding.isEmpty else { continue }
@@ -62,6 +64,7 @@ public struct CheckCommand {
                     keys: keys,
                     catalog: bucket.catalog,
                     language: bucket.language,
+                    pluralKeys: pluralisedByCatalog[bucket.catalog] ?? [],
                     to: workspace.configuration.absolute(path)
                 )
                 report.templatesWritten.append(path)
@@ -105,6 +108,10 @@ public struct CheckCommand {
         // sends 18 translators after something only the source can fix. It is
         // reported here, once, against the source — which is often not even in
         // the checked set, so dropping it silently would lose it.
+        let pluralisedInSource = Set(
+            translatable.filter { catalog.isPluralised($0, catalog.sourceLanguage) }
+        )
+
         var sourceVariationGaps: [String: [String]] = [:]
         for key in translatable {
             guard case .variations(let categories) = catalog.status(key, catalog.sourceLanguage),
@@ -143,6 +150,25 @@ public struct CheckCommand {
                         missing.append(key)
                     }
                     if !isSource, status.needsReview { needsReview.append(key) }
+
+                    // One string cannot serve four grammatical numbers. Where
+                    // the source pluralises a key and the target language needs
+                    // more than one form, a flat translation is incomplete — and
+                    // it is what anyone filling in a template writes if nobody
+                    // told them the key was a plural.
+                    //
+                    // Japanese is not caught: it requires `other` alone, so a
+                    // flat string is exactly equivalent.
+                    if !isSource, pluralisedInSource.contains(key) {
+                        let required = PluralRules.categories(for: language).required
+                        if required.count > 1 {
+                            pluralGaps.append(PluralGap(
+                                key: key,
+                                language: language,
+                                missingCategories: required
+                            ))
+                        }
+                    }
                 case .variations(let missingCategories):
                     if missingCategories.isEmpty {
                         translated += 1
@@ -245,7 +271,8 @@ public struct CheckCommand {
             caseDuplicates: SimilarKeys.caseDuplicates(in: catalog),
             similarKeys: similar,
             pluralGaps: pluralGaps,
-            formatMismatches: formatMismatches
+            formatMismatches: formatMismatches,
+            pluralisedKeys: pluralisedInSource.sorted()
         )
     }
 }

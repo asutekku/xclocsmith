@@ -92,6 +92,9 @@ public struct CatalogReport: Equatable, Sendable {
     public let similarKeys: [SimilarPair]
     public let pluralGaps: [PluralGap]
     public let formatMismatches: [FormatMismatch]
+    /// Keys the source language pluralises, so a template can ask for the
+    /// target language's plural forms rather than a flat string.
+    public let pluralisedKeys: [String]
 
     var jsonValue: JSONValue {
         .object([

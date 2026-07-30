@@ -8,29 +8,85 @@
 
 Xcode will happily ship a Polish translation that dropped its `%@`, a Russian
 plural missing `few` and `many`, and a `Text("Get Pro")` that no catalog has ever
-heard of. `xclocsmith` finds all three in about a second, and edits `.xcstrings`
-files without destroying what Xcode put there.
+heard of. `xclocsmith` finds all three in about a second, edits `.xcstrings`
+files without destroying what Xcode put there, and closes the loop: it hands a
+model exactly what is missing and then checks the answer.
 
 It does Xcode localization and nothing else.
 
 ```console
-$ xclocsmith scan
-FAIL  strings not in a catalog (2):
-  App/SettingsView.swift:110  [Label]  "Scan Storage"
-      → App/Localizable.xcstrings
-  App/Paywall.swift:45  [Text]  "Get Pro"
-      → App/Localizable.xcstrings
+$ xclocsmith check
+App/Localizable.xcstrings  (Localizable, source en)
+  412 keys, 407 translatable
+  de: 407/407 (100%)
+  ja: 388/407 (95%)   missing 19
+  ru: 401/407 (99%)   missing 4  unreviewed 12
 
-note  localization bypasses (1):
-  App/Legacy.swift:88  .text = "…" needs String(localized:) to localize
-      titleLabel.text = "Welcome back"
+  FAIL  missing ja translations (19):
+    - Cancel
+    - Delete %@
+    …
 
-Scanned 312 Swift file(s), 1584 user-visible string(s).
-2 failing finding(s), 1 advisory. Exit 1.
+  FAIL  format specifiers disagree with the source string (1):
+    - [ru] "Delete %@" has 0 format specifier(s), the source has 1
+        "Delete %@"  →  "Удалить"
+
+23 failing finding(s), 12 advisory. Exit 1.
 ```
+
+## Translate with an LLM, and verify the result
+
+Untranslated keys go out as a fill-in template and come back as a patch. The
+point is the last step: **the tool checks what the model wrote.**
+
+```bash
+xclocsmith check --lang ru --out work.json   # every missing Russian string
+#  … hand work.json to a model, or a translator …
+xclocsmith add work.json                     # merged, never flattened
+xclocsmith check --lang ru                   # exit 0 only if it is actually right
+```
+
+The template asks for the shape the *target language* needs, because nobody
+should have to know that Russian takes four plural forms and Japanese one:
+
+```json
+{
+  "format": "xclocsmith/v1",
+  "catalog": "App/Localizable.xcstrings",
+  "language": "ru",
+  "strings": {
+    "Delete %@": "TODO",
+    "%lld items": {
+      "plural": { "one": "TODO", "few": "TODO", "many": "TODO", "other": "TODO" }
+    }
+  }
+}
+```
+
+And the verify step catches what models actually get wrong:
+
+```console
+FAIL  format specifiers disagree with the source string (1):
+  - [ru] "Delete %@" has 0 format specifier(s), the source has 1
+      "Delete %@"  →  "Удалить"          ← dropped the placeholder
+
+FAIL  incomplete plural variations (1):
+  - [ru] "%lld items" needs one, few, many, other   ← answered with one string
+```
+
+Both of those are silent in Xcode. The first ships a button that never names the
+thing it deletes; the second ships the wrong grammatical number for three counts
+out of four. `--json` on every step means the loop needs no prose parsing, and
+`xcloc check` applies the same scrutiny to an `.xcloc` bundle a vendor or an
+agent hands back — including flagging units marked as machine-translated.
 
 ## Features
 
+- **Translate with a model and check its work.** A template of exactly what is
+  missing, shaped for the target language's plural rules, and a verify step that
+  rejects a dropped `%@` or a Russian plural answered with one string.
+- **Coverage per language, per catalog**, with the missing keys listed — not a
+  percentage you have to go hunting behind.
 - **Catches what Xcode cannot.** Format specifiers that disagree with their
   source string, plural categories CLDR requires, translations identical to the
   English, keys that differ only in case.
@@ -79,6 +135,7 @@ DuckDuckGo, whose 3,196 Swift files take 62s.
 
 ## Contents
 
+- [Translate with an LLM](#translate-with-an-llm-and-verify-the-result)
 - [Installation](#installation)
 - [Getting started](#getting-started)
 - [Commands](#commands)
@@ -156,11 +213,33 @@ xclocsmith check --strict           # advisories fail too
 xclocsmith check --json
 ```
 
-**Coverage that reflects how Xcode actually works.** A `stringUnit` in state
-`new` is untranslated, not done. A key marked `stale` is on its way out of the
-catalog, so it is reported separately instead of nagging translators. A language
-you declared but have not started shows 0%, rather than passing silently because
-the catalog has no entries for it yet.
+**Coverage per language, and the keys behind it.** Every language in every
+catalog, with the outstanding keys named rather than counted:
+
+```
+App/Localizable.xcstrings  (Localizable, source en)
+  412 keys, 407 translatable
+  de: 407/407 (100%)
+  ja: 388/407 (95%)   missing 19
+  ru: 401/407 (99%)   missing 4  unreviewed 12
+
+  FAIL  missing ja translations (19):
+    - Cancel
+    - Delete %@
+    …
+```
+
+`missing` is a key with no value or an empty one, `unreviewed` a `needs_review`
+unit — the state Xcode writes for machine translation and for a source string
+that changed after it was translated. `--lang ja` narrows it to one language;
+`--out` turns whatever is outstanding into a [fill-in
+template](#translate-with-an-llm-and-verify-the-result).
+
+The counting follows Xcode's own semantics. A `stringUnit` in state `new` is
+untranslated, not done. A key marked `stale` is on its way out of the catalog,
+so it is reported separately instead of nagging translators. A language you
+declared but have not started shows 0%, rather than passing silently because the
+catalog has no entries for it yet.
 
 **Plurals against real CLDR categories.** "One filled row" is complete for
 Japanese and three rows short for Russian. Categories that only apply to
@@ -170,6 +249,10 @@ decimals or compact millions (Czech `many`, French `many`) are not demanded.
 FAIL  incomplete plural variations (1):
   - [ru] "%lld items" needs few, many, other
 ```
+
+A flat translation of a pluralised key counts as incomplete too, for every
+language that needs more than one form. One string cannot serve four
+grammatical numbers, however complete the percentage looks.
 
 **Format specifiers**, the classic localization crash, which nothing in Xcode
 warns you about:
@@ -422,7 +505,9 @@ enumerated in the payload — fix everything in the JSON and you reach exit 0.
 xclocsmith scan --json | jq '.missingKeys[] | {value, file, line, catalog}'
 ```
 
-The full loop needs no prose parsing:
+The [translate-and-verify loop](#translate-with-an-llm-and-verify-the-result)
+needs no prose parsing at any step. `scan` writes a template too, for keys that
+are not in any catalog yet:
 
 ```bash
 xclocsmith scan --json --out work.json     # report to stdout, fill-in template to work.json

@@ -206,8 +206,17 @@ canonical, locale-aware `String.contains`, which is grapheme-by-grapheme; it now
 uses a literal byte search. Format-key resolution caches its compiled patterns
 and each catalog's candidate keys.
 
+### Translate-and-verify loop
+
+- A template asks for the plural forms the *target* language needs — Russian's
+  four, Japanese's one — instead of a flat `"TODO"` that gives no hint the key
+  is pluralised at all.
+- A flat translation of a pluralised key is reported as incomplete for any
+  language that requires more than one form. It used to count as 100% complete,
+  which is exactly what happens when a model is handed a bare `"TODO"`.
+
 ### Tests
 
-143, including a CLI suite covering flag grammar, exit codes, `--json` shape and
+147, including a CLI suite covering flag grammar, exit codes, `--json` shape and
 byte-identical trees after reading commands, and a recall suite built from the
-call sites the sample projects exposed.
+call sites and templates the sample projects exposed.

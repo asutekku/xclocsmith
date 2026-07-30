@@ -144,6 +144,49 @@ final class RecallTests: XCTestCase {
         XCTAssertFalse(StringsIndex.isBaseLanguage("de"))
     }
 
+    // MARK: - The translate-and-verify loop
+
+    /// A template asks for the plural forms the *target* language needs.
+    ///
+    /// Whoever fills it in cannot be expected to know that Russian needs four
+    /// forms and Japanese one. Handing them a flat `"TODO"` and then failing
+    /// the answer is a worse tool than asking for the right shape.
+    func testTemplateAsksForTheTargetLanguagePluralForms() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent("work.json").path
+
+        try TranslationPayload.writeTemplate(
+            keys: ["%lld items", "Save"],
+            catalog: "App/Localizable.xcstrings",
+            language: "ru",
+            pluralKeys: ["%lld items"],
+            to: path
+        )
+        let written = try JSONParser.parse(String(contentsOfFile: path, encoding: .utf8))
+        let strings = try XCTUnwrap(written["strings"]?.objectValue)
+
+        XCTAssertEqual(strings["Save"]?.stringValue, "TODO")
+        let plural = try XCTUnwrap(strings["%lld items"]?.objectValue?["plural"]?.objectValue)
+        XCTAssertEqual(Set(plural.keys), ["one", "few", "many", "other"])
+
+        // Japanese needs one form, so it is asked for one.
+        try TranslationPayload.writeTemplate(
+            keys: ["%lld items"],
+            catalog: "App/Localizable.xcstrings",
+            language: "ja",
+            pluralKeys: ["%lld items"],
+            to: path
+        )
+        let japanese = try JSONParser.parse(String(contentsOfFile: path, encoding: .utf8))
+        let categories = try XCTUnwrap(
+            japanese["strings"]?.objectValue?["%lld items"]?.objectValue?["plural"]?.objectValue
+        )
+        XCTAssertEqual(Set(categories.keys), ["other"])
+    }
+
     // MARK: - Helpers
 
     private func source(named path: String, text: String) -> AnalyzedSource {
