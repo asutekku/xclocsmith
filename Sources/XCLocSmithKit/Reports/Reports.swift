@@ -295,6 +295,11 @@ public struct ScanReport: Report {
     public var resolvedInLegacyStrings = 0
     public var legacyStringsFiles = 0
     public var testFilesSkipped = 0
+    /// Non-empty when `--files` narrowed the run, so the reader knows the
+    /// orphan check did not happen rather than assuming it came back clean.
+    public var limitedToFiles: [String] = []
+    /// Paths `--files` named that are in no target's sources.
+    public var unscannedFiles: [String] = []
 
     public var failures: Int { missingKeys.count + untranslated.count + diagnostics.count }
     public var advisories: Int { bypasses.count + orphans.reduce(0) { $0 + $1.keys.count } }
@@ -307,6 +312,9 @@ public struct ScanReport: Report {
             "resolvedInLegacyStrings": .number("\(resolvedInLegacyStrings)"),
             "legacyStringsFiles": .number("\(legacyStringsFiles)"),
             "testFilesSkipped": .number("\(testFilesSkipped)"),
+            "limitedToFiles": .array(limitedToFiles.map { .string($0) }),
+            "unscannedFiles": .array(unscannedFiles.map { .string($0) }),
+            "orphansChecked": .bool(limitedToFiles.isEmpty),
             "missingKeys": .array(missingKeys.map(\.jsonValue)),
             "untranslated": .array(untranslated.map(\.jsonValue)),
             "bypasses": .array(bypasses.map { bypass in

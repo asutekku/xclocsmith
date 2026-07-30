@@ -23,6 +23,12 @@ public enum ExtractionState: String, Sendable {
     case migrated
     case extractedWithValue = "extracted_with_value"
     case stale
+    /// Written by Xcode for strings it maintains automatically — DuckDuckGo's
+    /// browsers ship it on Info.plist keys. Semantically the same as an absent
+    /// state (managed by the build), but a value Xcode writes must be a value
+    /// this model can name, or `extractionState()` returns nil and the two
+    /// cases become indistinguishable.
+    case automatic
 
     /// Only manually-managed strings get generated symbols, so only they can
     /// collide by case at build time.

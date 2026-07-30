@@ -8,17 +8,23 @@ public struct ScanCommand {
         public var writeTemplates: Bool
         public var templatePath: String?
         public var includeFormatKeysInOrphans: Bool
+        /// Report only these files. The rest of the project is still read, so
+        /// the classifier keeps everything it has learned about the project's
+        /// own idioms — a helper defined in another file still counts.
+        public var files: [String]
 
         public init(
             languages: [String] = [],
             writeTemplates: Bool = false,
             templatePath: String? = nil,
-            includeFormatKeysInOrphans: Bool = false
+            includeFormatKeysInOrphans: Bool = false,
+            files: [String] = []
         ) {
             self.languages = languages
             self.writeTemplates = writeTemplates
             self.templatePath = templatePath
             self.includeFormatKeysInOrphans = includeFormatKeysInOrphans
+            self.files = files
         }
     }
 
@@ -61,20 +67,50 @@ public struct ScanCommand {
         let allOrdered = allFiles.values.sorted { $0.path < $1.path }
         let orderedFiles = allOrdered.filter { !$0.isTestCode }
         report.testFilesSkipped = allOrdered.count - orderedFiles.count
+        // Discovery reads the whole project even when the report will not.
+        // What the classifier knows about a file depends on declarations
+        // elsewhere: a `title:` parameter is display text because some other
+        // file declares the type that receives it.
         let discovered = LocalizableDiscovery.discover(in: orderedFiles)
-        report.filesScanned = orderedFiles.count
         report.discoveredParameters = discovered.parameterOwners.mapValues { $0.sorted() }
 
+        let selection = resolveSelection(configuration: configuration)
+        let subject = selection.map { selection in
+            orderedFiles.filter { selection.resolved.keys.contains($0.path) }
+        } ?? orderedFiles
+        if let selection {
+            report.limitedToFiles = selection.resolved.values.sorted()
+            // A path that reached no file is worth saying out loud, but it is
+            // not a failure: a hook fires on whatever was written, and a test
+            // file or a README is a normal thing to be handed. Echoed back as
+            // it was typed, since a path this tool could not place is not one
+            // to restate in its own terms.
+            let reached = Set(subject.map(\.path))
+            report.unscannedFiles = selection.resolved
+                .filter { !reached.contains($0.key) }
+                .values
+                .sorted()
+        }
+        report.filesScanned = subject.count
+
         // Analyze each file once; results are reused per owning target.
+        // Independent per file, like the lexing, so it runs across cores.
+        var results = [SourceScanResult?](repeating: nil, count: subject.count)
+        results.withUnsafeMutableBufferPointer { buffer in
+            let slots = buffer
+            DispatchQueue.concurrentPerform(iterations: subject.count) { index in
+                slots[index] = SourceAnalyzer.analyze(
+                    file: subject[index],
+                    discovered: discovered,
+                    options: configuration.classifierOptions,
+                    includePreviews: configuration.scanPreviews,
+                    ignoredStrings: configuration.ignoredStrings
+                )
+            }
+        }
         var analyzed: [String: SourceScanResult] = [:]
-        for file in orderedFiles {
-            analyzed[file.path] = SourceAnalyzer.analyze(
-                file: file,
-                discovered: discovered,
-                options: configuration.classifierOptions,
-                includePreviews: configuration.scanPreviews,
-                ignoredStrings: configuration.ignoredStrings
-            )
+        for (index, file) in subject.enumerated() {
+            analyzed[file.path] = results[index]
         }
 
         // Resolved once, before any scanning: a typo in --lang must fail the
@@ -208,13 +244,50 @@ public struct ScanCommand {
         report.bypasses = bypasses
             .filter { seenBypasses.insert("\($0.file)\u{1}\($0.line)\u{1}\($0.reason)").inserted }
             .sorted { ($0.file, $0.line) < ($1.file, $1.line) }
-        report.orphans = orphans(perTarget: perTarget, analyzed: analyzed)
+        // A key is orphaned when *nothing* references it, which cannot be
+        // concluded from a subset of the sources. Reporting it anyway would
+        // offer live keys for deletion.
+        if selection == nil {
+            report.orphans = orphans(perTarget: perTarget, analyzed: analyzed)
+        }
         report.diagnostics = workspace.diagnostics
 
         if options.writeTemplates {
             report.templatesWritten = try writeTemplates(for: report)
         }
         return report
+    }
+
+    /// The files `--files` named, keyed by absolute path and carrying the
+    /// spelling they were given in. Nil for a whole-project run.
+    ///
+    /// A relative path is resolved against the working directory first, because
+    /// that is where a person or a hook is standing when they type it; the
+    /// configuration's root is the fallback, which is the same thing whenever
+    /// the two agree.
+    private struct Selection {
+        /// absolute path → the argument that produced it
+        var resolved: [String: String]
+    }
+
+    private func resolveSelection(configuration: Configuration) -> Selection? {
+        guard !options.files.isEmpty else { return nil }
+        let workingDirectory = FileManager.default.currentDirectoryPath
+        var resolved: [String: String] = [:]
+        for path in options.files {
+            let absolute: String
+            if path.hasPrefix("/") {
+                absolute = URL(fileURLWithPath: path).standardized.path
+            } else {
+                let fromWorkingDirectory = URL(fileURLWithPath: workingDirectory)
+                    .appendingPathComponent(path).standardized.path
+                absolute = FileManager.default.fileExists(atPath: fromWorkingDirectory)
+                    ? fromWorkingDirectory
+                    : configuration.absolute(path)
+            }
+            resolved[absolute] = path
+        }
+        return Selection(resolved: resolved)
     }
 
     /// An interpolated literal becomes a format key; match it against the

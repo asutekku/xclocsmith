@@ -93,7 +93,13 @@ public enum PluralRules {
             "nd", "nr", "ny", "om", "os", "pap", "rm", "rof", "rwk", "saq", "seh",
             "so", "ss", "ssy", "syr", "teo", "tig", "tn", "ts", "ve", "vo", "vun",
             "wae", "xog", "kab", "tzm",
+            // Present in real projects' catalogs (GoMap ships an, oc, ckb;
+            // damus ships kmr-TR): all one/other in CLDR.
+            "an", "ckb", "kmr", "oc",
         ] { table[code] = oneOther }
+
+        // Najdi Arabic follows Arabic's six categories in CLDR.
+        table["ars"] = Categories(["zero", "one", "two", "few", "many", "other"])
 
         // French and Portuguese: CLDR `many` only applies to compact millions.
         table["fr"] = Categories(["one", "other"], optional: ["many"])

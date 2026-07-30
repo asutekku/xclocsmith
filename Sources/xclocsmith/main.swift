@@ -139,7 +139,8 @@ func run() -> Int32 {
                     languages: CommandLineParser.languages(parsed),
                     writeTemplates: wantsTemplate && !parsed.isSet(Flags.noTemplate),
                     templatePath: parsed.value(Flags.out),
-                    includeFormatKeysInOrphans: parsed.isSet(Flags.includeFormatKeys)
+                    includeFormatKeysInOrphans: parsed.isSet(Flags.includeFormatKeys),
+                    files: CommandLineParser.files(parsed)
                 )
             )
             let report = try command.run()

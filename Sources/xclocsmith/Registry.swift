@@ -29,11 +29,17 @@ enum Registry {
         flags: [
             Flags.lang, Flags.config, Flags.noConfig, Flags.json, Flags.strict,
             Flags.out, Flags.template, Flags.noTemplate, Flags.previews,
-            Flags.includeFormatKeys,
+            Flags.includeFormatKeys, Flags.files,
         ],
         discussion: """
             Resolves each call to the table it asks for, so a key in Errors.xcstrings
             does not satisfy a lookup in Localizable.xcstrings.
+
+            --files narrows the report to the files named while still reading the
+            whole project, so a helper declared elsewhere still counts. Orphaned
+            keys are not reported then: nothing references them cannot be
+            concluded from a subset. This is the form to run from an editor or a
+            commit hook.
 
             Writes a translation template only when --template or --out is given.
             """

@@ -22,6 +22,17 @@ First release.
   which are the ones `xcstringstool generate-symbols` actually rejects.
 - Near-duplicate key detection that filters out pairs differing only in digits
   or in one unrelated word.
+- Duplicate source strings, grouped, with the languages that translate them
+  differently named. Only visible on catalogs keyed by identifier, where two
+  keys can share an English string; exact matches carry no minimum length,
+  since the strings most likely to be entered twice are the short ones.
+- An opt-in glossary: term to per-language rendering, `*` for a rendering every
+  language must use. Violations fail rather than advise, because a glossary is
+  a decision the project wrote down.
+- `extractionState: automatic`, which Xcode writes and DuckDuckGo ships, is
+  modelled rather than read as an absent state.
+- CLDR plural data for `an`, `ars`, `ckb`, `kmr` and `oc`, which real catalogs
+  in the sample ship and which previously fell back to `other` alone.
 
 ### Scanning
 
@@ -37,6 +48,9 @@ First release.
 - UIKit text assignments and `setTitle(_:)` reported as bypasses.
 - `InfoPlist.xcstrings` and `AppShortcuts.xcstrings` exempt from source-reference
   checks.
+- `--files` narrows the report to named files while still reading the whole
+  project, since whether a call localizes depends on declarations elsewhere.
+  Orphans are not reported for a subset, and the run says so.
 
 ### Editing
 

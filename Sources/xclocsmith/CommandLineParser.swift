@@ -38,6 +38,7 @@ enum Flags {
     static let previews = Flag.bool("--previews", "Include strings inside #Preview / PreviewProvider bodies.")
     static let includeFormatKeys = Flag.bool("--include-format-keys", "Consider keys containing %@ / %lld when reporting orphans.")
     static let threshold = Flag.value("--threshold", "Near-duplicate threshold, 50–99 (default 85).")
+    static let files = Flag.value("--files", "Report only these source files; repeatable or comma-separated.")
 }
 
 struct CommandSpec {
@@ -150,7 +151,15 @@ enum CommandLineParser {
 
     /// Splits `--lang ja,de --lang fr` into `["ja", "de", "fr"]`.
     static func languages(_ parsed: ParsedCommand) -> [String] {
-        parsed.list(Flags.lang)
+        split(parsed.list(Flags.lang))
+    }
+
+    static func files(_ parsed: ParsedCommand) -> [String] {
+        split(parsed.list(Flags.files))
+    }
+
+    private static func split(_ values: [String]) -> [String] {
+        values
             .flatMap { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) } }
             .filter { !$0.isEmpty }
     }

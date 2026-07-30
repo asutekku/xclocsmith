@@ -1,0 +1,43 @@
+#!/bin/sh
+# Git pre-commit hook: check the staged files, not the whole project.
+#
+# Install with:
+#   ln -s ../../Examples/hooks/pre-commit .git/hooks/pre-commit
+#
+# Staged Swift goes through `scan --files`, which reads the whole project — a
+# helper declared in a file you did not touch still decides whether the string
+# you did touch is localized — but reports only on what you are committing.
+# Staged catalogs go through `check`.
+#
+# Bypass with `git commit --no-verify` when you mean to.
+
+set -eu
+
+command -v xclocsmith >/dev/null 2>&1 || exit 0
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+swift=$(printf '%s\n' "$staged" | grep '\.swift$' || true)
+catalogs=$(printf '%s\n' "$staged" | grep '\.xcstrings$' || true)
+
+status=0
+
+if [ -n "$swift" ]; then
+    # One --files per path; the flag is repeatable.
+    set --
+    for file in $swift; do
+        set -- "$@" --files "$file"
+    done
+    xclocsmith scan "$@" || status=1
+fi
+
+if [ -n "$catalogs" ]; then
+    # shellcheck disable=SC2086
+    xclocsmith check $catalogs || status=1
+fi
+
+if [ "$status" -ne 0 ]; then
+    echo ""
+    echo "Commit stopped by xclocsmith. Fix the findings, or commit with --no-verify."
+fi
+
+exit "$status"

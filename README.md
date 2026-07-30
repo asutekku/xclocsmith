@@ -104,6 +104,10 @@ agent hands back — including flagging units marked as machine-translated.
   their source string, plural categories CLDR requires, translations identical
   to the English, keys that differ only in case. Xcode's editor will show you
   some of this if you go looking; nothing fails a build over it.
+- **Finds the same string translated two ways.** Two keys with one English
+  string are invisible in Xcode, and their translations drift. Add a glossary
+  and the terms you have decided on — a product name, a feature name — are
+  checked in every language.
 - **A real Swift tokenizer.** Escapes, raw strings, multi-line literals,
   interpolation, and a `)` inside a block comment inside an interpolation —
   the cases where a regex-based scanner quietly gives up.
@@ -126,23 +130,33 @@ agent hands back — including flagging units marked as machine-translated.
 Nine open-source apps, `init && check && scan` with no hand-written config —
 8,077 keys, 70 locales, 6,368 Swift files.
 
-| Project | Catalogs · keys · locales | Broken format strings | Missing plural forms | Duplicate strings | Unlocalized in code |
-|---|---|---:|---:|---|---:|
-| [Whisky](https://github.com/Whisky-App/Whisky) | 1 · 152 · 21 | 0 | 0 | 8 | 0 |
-| [Loop](https://github.com/MrKai77/Loop) | 1 · 404 · 13 | 0 | 0 | 9 (+3 case) | 0 |
-| [NetNewsWire](https://github.com/Ranchero-Software/NetNewsWire) | 9 · 472 · 1 | 0 | 0 | 0 (+4 case) | 85 |
-| [IceCubesApp](https://github.com/Dimillian/IceCubesApp) | 1 · 733 · 18 | **2** | **33** | 91 | 47 |
-| [Mastodon for iOS](https://github.com/mastodon/mastodon-ios) | 9 · 980 · 53 | **9** | **11** | 139 | 27 |
-| [HSTracker](https://github.com/HearthSim/HSTracker) | 23 · 777 · 13 | 0 | 0 | 78 (+1 case) | 10 |
-| [Nimble Commander](https://github.com/mikekazakov/nimble-commander) | 54 · 1322 · 1 | 0 | 0 | 323 (+2 case) | 0 † |
-| [GoMap](https://github.com/bryceco/GoMap) | 15 · 761 · 33 | **4** | 0 | 94 (+3 case) | 10 |
-| [DuckDuckGo](https://github.com/duckduckgo/apple-browsers) | 19 · 2476 · 26 | **20** | 0 | 523 | 166 |
+| Project | Catalogs · keys · locales | Broken format strings | Missing plural forms | Translated two ways | Duplicate strings | Unlocalized in code |
+|---|---|---:|---:|---:|---|---:|
+| [Whisky](https://github.com/Whisky-App/Whisky) | 1 · 152 · 21 | 0 | 0 | **5** | 10 | 0 |
+| [Loop](https://github.com/MrKai77/Loop) | 1 · 404 · 13 | 0 | 0 | **3** | 9 (+3 case) | 0 |
+| [NetNewsWire](https://github.com/Ranchero-Software/NetNewsWire) | 9 · 472 · 1 | 0 | 0 | 0 | 0 (+4 case) | 85 |
+| [IceCubesApp](https://github.com/Dimillian/IceCubesApp) | 1 · 733 · 18 | **2** | **89** | **55** | 88 | 47 |
+| [Mastodon for iOS](https://github.com/mastodon/mastodon-ios) | 9 · 980 · 53 | **9** | **53** | 0 | 122 | 27 |
+| [HSTracker](https://github.com/HearthSim/HSTracker) | 23 · 777 · 13 | 0 | 0 | **5** | 64 (+1 case) | 10 |
+| [Nimble Commander](https://github.com/mikekazakov/nimble-commander) | 54 · 1322 · 1 | 0 | **1** | **5** | 330 (+2 case) | 0 † |
+| [GoMap](https://github.com/bryceco/GoMap) | 15 · 761 · 33 | **4** | **150** | **25** | 76 (+3 case) | 10 |
+| [DuckDuckGo](https://github.com/duckduckgo/apple-browsers) | 19 · 2476 · 26 | **20** | **48** | **22** | 339 | 166 |
 
 **Bold** ships as a user-visible bug. Mastodon's Albanian `"Option %ld"` is
 translated `"%ld nga %ld"`, which reads a second argument the call never
-supplies. Its Russian plurals leave `other` empty, so any fractional count
-renders as nothing at all. GoMap's Arabic translator pasted the *description* of
-a string into two of its plural forms, and the count went with it.
+supplies. GoMap's Arabic translator pasted the *description* of a string into
+two of its plural forms, and the count went with it. Whisky renders one of its
+two "Remove" buttons as German `"Löschen"` — delete — and the other as
+`"Entfernen"`.
+
+The "translated two ways" column is the one nothing else finds. Two keys with
+the same English are invisible in Xcode when a project keys by identifier, and
+their translations drift apart: `Scene.Profile.SegmentedControl.About` and
+`Scene.Settings.AboutMastodon.Title` are one string to a reader and two rows to
+a translator. IceCubesApp has 55 such splits, including a key whose English was
+changed to `"%lld posts"` and whose Belarusian still reads `"%lld people
+talking"` — state `translated`, and detectable only beside its twin. Mastodon's
+122 duplicates all agree, because its translation memory propagates them.
 
 Whisky and Loop genuinely have no unlocalized strings, and the tool finds none
 across their 213 files. No false positives padding the column.
@@ -152,9 +166,9 @@ so its zero means `scan` had almost nothing to read — `check` is fully
 meaningful there, `scan` is not. Objective-C sources are not scanned at all;
 that is the largest gap in this tool today.
 
-`check` runs in under a second on eight of the nine — DuckDuckGo's 2,476 keys
-across 19 catalogs take 1.7s. `scan` is under five seconds everywhere except
-DuckDuckGo, whose 3,196 Swift files take 62s.
+`check` runs in under a second on all nine, DuckDuckGo's 2,476 keys across 19
+catalogs included. `scan` is under five seconds everywhere except DuckDuckGo,
+whose 3,196 Swift files take 44s.
 
 ## Contents
 
@@ -168,6 +182,7 @@ DuckDuckGo, whose 3,196 Swift files take 62s.
 - [Localization catalogs (`.xcloc`)](#localization-catalogs-xcloc)
 - [Configuration](#configuration)
 - [Continuous integration](#continuous-integration)
+- [Editor and commit hooks](#editor-and-commit-hooks)
 - [Agents and automation](#agents-and-automation)
 - [MCP server](#mcp-server)
 - [Out of scope](#out-of-scope)
@@ -293,15 +308,41 @@ specifiers are for. Substitutions (`%#@count@`) are expanded and checked through
 to the variations inside them, and so are plural forms: a German `other` that
 dropped its `%lld` is the single likeliest place for this bug to hide.
 
+**One source string, two translations.** Keys that share an English string are
+grouped, and the languages that render them differently are named:
+
+```
+note  one source string translated more than one way (1):
+  - "Remove"  button.removeAlert.delete, environment.remove
+      [de] "Löschen" (button.removeAlert.delete)  vs  "Entfernen" (environment.remove)
+      [es] "Borrar" (button.removeAlert.delete)  vs  "Eliminar" (environment.remove)
+```
+
+Advisory rather than fatal: "Free" the price and "Free" the vacancy are one
+English string with two right answers, and a project that has shipped for years
+has hundreds of them. Record the ones you have looked at in `ignoreSimilar` and
+they stop coming back — adding a third key to a settled pair brings the group
+back, because the third key has not been reviewed.
+
 **Near-duplicates and case variants.** Compared on the *strings*, not the keys,
 so a project that keys by identifier gets a real answer rather than a list of
 every sibling in every namespace.
+
+**Glossary terms**, if you declare any. Unlike everything above, this one fails
+rather than advises, because a glossary is a decision you wrote down:
+
+```
+FAIL  glossary terms not used (1):
+  - [ja] "Onsen" must render as "温泉"
+      "New onsen session"  →  "新しいセッション"
+```
 
 ## Scanning your source
 
 ```bash
 xclocsmith scan
 xclocsmith scan --json --out work.json     # findings plus a fill-in template
+xclocsmith scan --files Sources/View.swift # report on one file, read all of them
 ```
 
 Strings your code shows but never localizes, found by tokenizing Swift rather
@@ -485,6 +526,10 @@ optional. `xclocsmith init` writes one.
   "excludePaths": ["**/Generated/*.swift"],
   "ignoreStrings": ["debug-only string"],
   "ignoreSimilar": [["Max Temperature", "Min Temperature"]],
+  "glossary": {
+    "Onsen": { "ja": "温泉", "de": "Onsen" },
+    "Furolog": { "*": "Furolog" }
+  },
   "localizableParams": ["captionKey"],
   "similarityThreshold": 85,
   "scanPreviews": false
@@ -499,7 +544,8 @@ optional. `xclocsmith init` writes one.
 | `languages` | Languages to check. A language listed here is checked even if the catalog has no entries for it yet. |
 | `excludePaths` | Glob patterns against repo-relative paths. |
 | `ignoreStrings` | Literal values `scan` should never report. |
-| `ignoreSimilar` | Acknowledged near-duplicate pairs. |
+| `ignoreSimilar` | Acknowledged near-duplicate pairs, and duplicate source strings you have decided to keep. |
+| `glossary` | Terms whose translation is fixed. `"*"` applies to every language, which is how a product name that must survive translation is written; a named language overrides it, so one language may transliterate what the rest leave alone. A regional code inherits its base — `pt-BR` follows `pt` unless it says otherwise. Matching ignores case in the source and respects it in the rendering. |
 | `localizedAccessors` | Members that localize the literal they are on. Defaults to `localized`, `localizedString`, `localizedValue`, `loc`, `l10n`. |
 | `localizableCalls`, `localizableModifiers`, `localizableParams` | Extra contexts to treat as user-visible. |
 | `skipCalls`, `skipParams` | Contexts to treat as internal. These win over the built-in tables, so a project with its own non-localizing `Label` type can silence it. |
@@ -552,6 +598,48 @@ case $? in
   2) echo "xclocsmith is misconfigured"; exit 2 ;;
 esac
 ```
+
+## Editor and commit hooks
+
+`scan --files` reports on the files you name while still reading the whole
+project. That distinction is the point: whether `L("Take a bath")` is a
+localization call depends on a `func L` declared in some other file, so a linter
+that reads one file in isolation both misses real findings and invents fake
+ones. Orphaned keys are not reported for a subset — that nothing references a
+key cannot be concluded from part of the sources, and the answer feeds `prune`,
+which deletes.
+
+```bash
+xclocsmith scan --files Sources/SessionView.swift
+xclocsmith check Resources/Localizable.xcstrings
+```
+
+`check` on a single catalog takes well under a second on every project in the
+table above, so it is cheap enough to run on every save. `scan` reads the whole
+project either way: a few hundred files is a second or two, DuckDuckGo's 3,196
+is 44s. Below a few thousand files, run it per edit; above that, run it once
+when you are done.
+
+Two ready hooks are in [`Examples/hooks/`](Examples/hooks):
+
+- **`pre-commit`** — checks the staged Swift and catalogs, nothing else.
+  `ln -s ../../Examples/hooks/pre-commit .git/hooks/pre-commit`.
+- **`claude-code-hook.py`** — a Claude Code `PostToolUse` hook. When an agent
+  writes a Swift file it is told about strings that reach no catalog; when it
+  writes a catalog it is told about broken format specifiers, case collisions
+  that break symbol generation, glossary terms it dropped, and one string it has
+  just given a second translation. Exit 2 hands the message back to the model,
+  so it fixes what it wrote instead of hearing about it at review time.
+
+```
+xclocsmith found 2 localization issue(s):
+  - App/SessionView.swift:6  "Session saved to your history" is in no catalog (expected in App/Localizable.xcstrings)
+  - App/SessionView.swift:7  "Start soaking" is in no catalog (expected in App/Localizable.xcstrings)
+```
+
+Neither hook asks about translation coverage. A string added in this edit has no
+Japanese yet and is not supposed to; that is what `check` across the project is
+for, at a moment when somebody means to translate.
 
 ## Agents and automation
 

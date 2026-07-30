@@ -252,6 +252,16 @@ public struct TextRenderer {
         if report.testFilesSkipped > 0 {
             lines.append("Skipped \(report.testFilesSkipped) test file(s); test strings are not localized.")
         }
+        if !report.limitedToFiles.isEmpty {
+            // Without this line a narrowed run reads as a clean project.
+            lines.append("Limited to \(report.limitedToFiles.count) file(s); orphaned keys were not checked.")
+            if !report.unscannedFiles.isEmpty {
+                lines.append(
+                    "Not in any target's sources, so not scanned: "
+                        + report.unscannedFiles.joined(separator: ", ")
+                )
+            }
+        }
         // Saying so matters: these strings *are* localized, just not by
         // anything this tool audits, and a silent pass would read as coverage.
         if report.resolvedInLegacyStrings > 0 {
