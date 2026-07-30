@@ -116,6 +116,37 @@ final class DiffTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(diff.sourceChanges.first).staleLanguages, ["de"])
     }
 
+    /// IceCubesApp's `settings.display.section.platform` is "iPhone", "iPad",
+    /// "Mac" and "Apple Vision" at once, under device variations. Reducing it to
+    /// one display string picked whichever entry an unordered walk reached
+    /// first, so two separately parsed copies of the *same unchanged file*
+    /// disagreed — and `diff HEAD~50` reported the heading as having changed
+    /// from "iPhone" to "Mac" with five translations stranded. Nothing had
+    /// changed at all.
+    func testAnUnchangedDeviceVariationKeyIsNotAChange() throws {
+        let platform = deviceVariations([
+            "iphone": "iPhone", "ipad": "iPad", "mac": "Mac", "applevision": "Apple Vision",
+        ])
+        let before = catalog(["settings.display.section.platform": platform])
+        let after = catalog(["settings.display.section.platform": platform])
+
+        let diff = DiffCommand().run(before: before, after: after)
+        XCTAssertTrue(diff.sourceChanges.isEmpty)
+    }
+
+    /// The other half of that fix: a real change to one device case must still
+    /// be found, and named, rather than being lost in the reduction.
+    func testAChangeInsideOneDeviceVariationIsFound() throws {
+        let before = catalog(["a.platform": deviceVariations(["iphone": "iPhone", "mac": "Mac"])])
+        let after = catalog(["a.platform": deviceVariations(["iphone": "iPhone", "mac": "Desktop"])])
+
+        let diff = DiffCommand().run(before: before, after: after)
+        let change = try XCTUnwrap(diff.sourceChanges.first)
+        XCTAssertEqual(change.variation, "device.mac")
+        XCTAssertEqual(change.before, "Mac")
+        XCTAssertEqual(change.after, "Desktop")
+    }
+
     func testASourceLanguageChangeIsReported() throws {
         let before = try Catalog(
             path: root.appendingPathComponent("a.xcstrings").path,
@@ -226,6 +257,15 @@ final class DiffTests: XCTestCase {
 
     private func localized(_ values: [String: String]) -> JSONValue {
         .object(["localizations": .object(values.mapValues { unit($0) })])
+    }
+
+    /// A key whose English varies by device and has no flat value at all.
+    private func deviceVariations(_ cases: [String: String]) -> JSONValue {
+        .object(["localizations": .object([
+            "en": .object(["variations": .object([
+                "device": .object(cases.mapValues { unit($0) }),
+            ])]),
+        ])])
     }
 
     private func plural(_ english: [String: String], de: String) -> JSONValue {

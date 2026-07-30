@@ -132,11 +132,29 @@ public struct Catalog {
     /// the key is what made `plural.count.vote` and `plural.count.voter` look
     /// like near-duplicates: they share a namespace, and the strings they
     /// render ("%lld votes", "%lld voters") were never compared at all.
+    /// A key varying by device has no `plural.other` and no one right answer —
+    /// `settings.display.section.platform` is "iPhone", "iPad", "Mac" and
+    /// "Apple Vision" at once. The lowest path in sort order is picked, which is
+    /// arbitrary but **stable**: the first entry of an unordered walk is not,
+    /// and two catalogs parsed separately then disagree about what the same
+    /// unchanged key says. That is not hypothetical — it made `diff` report
+    /// IceCubesApp's platform heading as having changed from "iPhone" to "Mac",
+    /// with five translations stranded, when nothing had changed at all.
     public func displayText(_ key: String, _ language: String) -> String? {
         if let flat = value(key, language) { return flat }
         let entries = comparableEntries(key, language)
         return entries.first(where: { $0.path.hasSuffix("plural.other") })?.value
-            ?? entries.first?.value
+            ?? entries.min(by: { $0.path < $1.path })?.value
+    }
+
+    /// Every value this key holds for a language, keyed by variation path.
+    ///
+    /// The comparison to use when the question is "did this change", rather
+    /// than "what does it say": a key with four device variations changes when
+    /// any one of them does, and reducing it to a single display string both
+    /// misses three of those and invents changes that did not happen.
+    public func signature(_ key: String, _ language: String) -> [String: String] {
+        Dictionary(comparableEntries(key, language), uniquingKeysWith: { first, _ in first })
     }
 
     public func shape(_ key: String, _ language: String) -> LocalizationShape {

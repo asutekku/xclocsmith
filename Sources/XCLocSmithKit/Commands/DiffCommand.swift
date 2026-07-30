@@ -42,20 +42,30 @@ public struct DiffCommand {
         }
 
         for key in new.intersection(old).sorted() {
-            let wasSource = before.displayText(key, before.sourceLanguage)
-            let isSource = after.displayText(key, sourceLanguage)
-            guard let wasSource, let isSource, wasSource != isSource else {
+            // Compared over every variation, not over one display string. A key
+            // varying by device holds four values at once, and reducing it to
+            // one both misses three of them and — before `displayText` was made
+            // to pick deterministically — invented changes out of dictionary
+            // ordering.
+            let wasSource = before.signature(key, before.sourceLanguage)
+            let isSource = after.signature(key, sourceLanguage)
+            guard !wasSource.isEmpty, !isSource.isEmpty, wasSource != isSource else {
                 // The source is unchanged, so a changed translation is somebody
                 // improving a translation, which is not a finding.
                 continue
             }
+            let changedPaths = Set(wasSource.keys).union(isSource.keys)
+                .filter { wasSource[$0] != isSource[$0] }
+                .sorted()
+            guard let path = changedPaths.first else { continue }
 
             let languages = self.languages(before: before, after: after, sourceLanguage: sourceLanguage)
             var unchanged: [String] = []
             var updated: [String] = []
             for language in languages {
-                guard let wasText = before.displayText(key, language), !wasText.isEmpty else { continue }
-                guard let isText = after.displayText(key, language), !isText.isEmpty else { continue }
+                let wasText = before.signature(key, language)
+                let isText = after.signature(key, language)
+                guard !wasText.isEmpty, !isText.isEmpty else { continue }
                 // A translation Xcode has already flagged needs no second
                 // flagging: the catalog is carrying the warning itself.
                 if after.status(key, language).needsReview { continue }
@@ -64,8 +74,12 @@ public struct DiffCommand {
 
             diff.sourceChanges.append(SourceChange(
                 key: key,
-                before: wasSource,
-                after: isSource,
+                // `absent` rather than an empty string: a variation that was
+                // added or removed is a different event from one whose text
+                // was blanked, and the two must not print the same.
+                before: wasSource[path] ?? "(absent)",
+                after: isSource[path] ?? "(absent)",
+                variation: path.isEmpty ? nil : path,
                 staleLanguages: unchanged.sorted(),
                 updatedLanguages: updated.sorted()
             ))
@@ -144,6 +158,9 @@ public struct SourceChange: Equatable, Sendable {
     public let key: String
     public let before: String
     public let after: String
+    /// The variation path that changed — `plural.other`, `device.mac` — or nil
+    /// for a key with no variations.
+    public let variation: String?
     /// Translations that did not move with it and are not marked for review.
     /// These are the ones now saying something the source no longer says.
     public let staleLanguages: [String]
@@ -182,6 +199,7 @@ public struct CatalogDiff: Equatable, Sendable {
                     "key": .string(change.key),
                     "before": .string(change.before),
                     "after": .string(change.after),
+                    "variation": change.variation.map { JSONValue.string($0) } ?? .null,
                     "staleLanguages": .array(change.staleLanguages.map { .string($0) }),
                     "updatedLanguages": .array(change.updatedLanguages.map { .string($0) }),
                 ])
@@ -237,7 +255,8 @@ public struct DiffReport: Report {
                 findings.append(Finding(
                     rule: "stale-translation",
                     level: .error,
-                    message: "\"\(change.key)\" changed from \"\(change.before)\" to "
+                    message: "\"\(change.key)\"\(change.variation.map { " [\($0)]" } ?? "") "
+                        + "changed from \"\(change.before)\" to "
                         + "\"\(change.after)\", but \(change.staleLanguages.joined(separator: ", ")) "
                         + "still \(change.staleLanguages.count == 1 ? "reads" : "read") the old text.",
                     file: diff.catalog,

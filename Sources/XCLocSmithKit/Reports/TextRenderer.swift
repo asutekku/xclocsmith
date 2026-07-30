@@ -225,7 +225,8 @@ public struct TextRenderer {
                 lines.append("")
                 lines.append("  FAIL  source changed, translations did not (\(stranding.count)):")
                 for change in stranding.prefix(maximumListLength) {
-                    lines.append("    - \"\(escaped(change.key))\"")
+                    let where_ = change.variation.map { " [\($0)]" } ?? ""
+                    lines.append("    - \"\(escaped(change.key))\"\(where_)")
                     lines.append("        was  \"\(escaped(change.before))\"")
                     lines.append("        now  \"\(escaped(change.after))\"")
                     lines.append("        still the old text: \(change.staleLanguages.joined(separator: ", "))")
