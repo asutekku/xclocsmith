@@ -115,7 +115,17 @@ enum CommandLineParser {
                     guard index + 1 < arguments.count else {
                         throw SmithError.usage("\(flag.name) needs a value")
                     }
-                    parsed.values[flag.name, default: []].append(arguments[index + 1])
+                    let value = arguments[index + 1]
+                    // `scan --out --json` means the user forgot the filename,
+                    // not that they want a file called "--json" — and swallowing
+                    // it writes one. `--out=--json` remains available for the
+                    // pathological case.
+                    guard value != "--", !Registry.allFlags.contains(value) else {
+                        throw SmithError.usage(
+                            "\(flag.name) needs a value, but the next argument is \(value)"
+                        )
+                    }
+                    parsed.values[flag.name, default: []].append(value)
                     index += 2
                 }
             } else {

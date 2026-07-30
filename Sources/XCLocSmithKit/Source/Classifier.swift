@@ -161,12 +161,16 @@ public enum Classifier {
         }
 
         // 6
-        if let label = context.label, let owners = discovered.parameterOwners[label], let callee = context.callee {
-            if owners.contains(callee) {
+        if let label = context.label, let callee = context.callee {
+            if discovered.parameterOwners[label]?.contains(callee) == true {
                 return .key(context: "\(callee)(\(label):)", table: context.tableName, confidence: .weak)
             }
-            // The project declares this parameter elsewhere and this type is not
-            // one of them: an internal identifier, not a display string.
+            // The project declares this type and nothing in its declaration
+            // routes this parameter through LocalizedStringKey — so it is an
+            // internal identifier, not a display string. Direct evidence beats
+            // the name-based guess in rule 7, and applying it only when some
+            // *other* type happens to localize the same parameter name would
+            // make the verdict depend on unrelated code.
             if discovered.declaredTypes.contains(callee) { return .ignored }
         }
 

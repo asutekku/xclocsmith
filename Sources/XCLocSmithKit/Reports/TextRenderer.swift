@@ -70,6 +70,9 @@ public struct TextRenderer {
                 lines.append("  FAIL  format specifiers disagree with the source string (\(catalog.formatMismatches.count)):")
                 for mismatch in catalog.formatMismatches.prefix(maximumListLength) {
                     lines.append("    - [\(mismatch.language)] \"\(escaped(mismatch.key))\" \(mismatch.problem)")
+                    if let source = mismatch.source, let translation = mismatch.translation {
+                        lines.append("        \"\(escaped(source))\"  →  \"\(escaped(translation))\"")
+                    }
                 }
                 if catalog.formatMismatches.count > maximumListLength {
                     lines.append("    … and \(catalog.formatMismatches.count - maximumListLength) more")
@@ -97,9 +100,17 @@ public struct TextRenderer {
 
             if !catalog.similarKeys.isEmpty {
                 lines.append("")
-                lines.append("  note  near-duplicate keys (\(catalog.similarKeys.count)):")
+                lines.append("  note  near-duplicate strings (\(catalog.similarKeys.count)):")
                 for pair in catalog.similarKeys.prefix(maximumListLength) {
-                    lines.append("    - \(pair.percent)%  \"\(escaped(pair.a))\"  vs  \"\(escaped(pair.b))\"")
+                    // Identifier keys do not show what was compared, so the
+                    // source text goes on the line beside them.
+                    func side(_ key: String, _ text: String?) -> String {
+                        guard let text else { return "\"\(escaped(key))\"" }
+                        return "\(key) (\"\(escaped(text))\")"
+                    }
+                    lines.append(
+                        "    - \(pair.percent)%  \(side(pair.a, pair.aText))  vs  \(side(pair.b, pair.bText))"
+                    )
                 }
                 if catalog.similarKeys.count > maximumListLength {
                     lines.append("    … and \(catalog.similarKeys.count - maximumListLength) more")

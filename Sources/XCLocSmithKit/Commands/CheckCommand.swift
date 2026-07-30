@@ -99,6 +99,24 @@ public struct CheckCommand {
         var pluralGaps: [PluralGap] = []
         var formatMismatches: [FormatMismatch] = []
 
+        // A variation gap the source language shares is one defect in the
+        // string, not one per language: a device variation with no `other` case
+        // is missing it in all 19 languages at once, and listing it 19 times
+        // sends 18 translators after something only the source can fix. It is
+        // reported here, once, against the source — which is often not even in
+        // the checked set, so dropping it silently would lose it.
+        var sourceVariationGaps: [String: [String]] = [:]
+        for key in translatable {
+            guard case .variations(let categories) = catalog.status(key, catalog.sourceLanguage),
+                  !categories.isEmpty else { continue }
+            sourceVariationGaps[key] = categories
+            pluralGaps.append(PluralGap(
+                key: key,
+                language: catalog.sourceLanguage,
+                missingCategories: categories
+            ))
+        }
+
         for language in languages {
             let isSource = language == catalog.sourceLanguage
             var missing: [String] = []
@@ -129,11 +147,18 @@ public struct CheckCommand {
                     if missingCategories.isEmpty {
                         translated += 1
                     } else {
-                        pluralGaps.append(PluralGap(
-                            key: key,
-                            language: language,
-                            missingCategories: missingCategories
-                        ))
+                        // Already reported against the source. Categories a
+                        // language genuinely needs — Russian `few` — are never
+                        // gaps in English, so nothing real is hidden here.
+                        let shared = Set(sourceVariationGaps[key] ?? [])
+                        let unshared = missingCategories.filter { !shared.contains($0) }
+                        if !unshared.isEmpty {
+                            pluralGaps.append(PluralGap(
+                                key: key,
+                                language: language,
+                                missingCategories: unshared
+                            ))
+                        }
                     }
                 }
 
@@ -171,7 +196,9 @@ public struct CheckCommand {
                         formatMismatches.append(FormatMismatch(
                             key: key,
                             language: language,
-                            problem: path.isEmpty ? problem : "[\(path)] \(problem)"
+                            problem: path.isEmpty ? problem : "[\(path)] \(problem)",
+                            source: counterpart,
+                            translation: value
                         ))
                         break   // one report per key and language is enough
                     }
@@ -195,7 +222,11 @@ public struct CheckCommand {
 
         let similar = catalog.kind.wantsSimilarKeyCheck
             ? SimilarKeys.similar(
-                keys: keys,
+                // A key with no source text at all is not comparable — falling
+                // back to the key would compare namespaces, not wording.
+                entries: keys.compactMap { key in
+                    catalog.displayText(key, catalog.sourceLanguage).map { (key, $0) }
+                },
                 threshold: workspace.configuration.similarityThreshold,
                 ignored: workspace.configuration.ignoredSimilarPairs
             )

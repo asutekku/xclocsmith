@@ -116,6 +116,21 @@ public struct Catalog {
         localization(key, language)?["stringUnit"]?.objectValue?["value"]?.stringValue
     }
 
+    /// The text this key actually shows, for checks that reason about wording
+    /// rather than structure.
+    ///
+    /// A pluralised key has no flat value — its text lives in the `other`
+    /// variation. Returning nil for those and letting the caller fall back to
+    /// the key is what made `plural.count.vote` and `plural.count.voter` look
+    /// like near-duplicates: they share a namespace, and the strings they
+    /// render ("%lld votes", "%lld voters") were never compared at all.
+    public func displayText(_ key: String, _ language: String) -> String? {
+        if let flat = value(key, language) { return flat }
+        let entries = comparableEntries(key, language)
+        return entries.first(where: { $0.path.hasSuffix("plural.other") })?.value
+            ?? entries.first?.value
+    }
+
     public func shape(_ key: String, _ language: String) -> LocalizationShape {
         guard let localization = localization(key, language) else {
             return LocalizationShape(hasStringUnit: false, hasVariations: false, hasSubstitutions: false)

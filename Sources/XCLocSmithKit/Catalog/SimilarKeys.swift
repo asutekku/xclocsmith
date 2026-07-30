@@ -4,6 +4,18 @@ public struct SimilarPair: Equatable, Sendable {
     public let a: String
     public let b: String
     public let percent: Int
+    /// The source-language text that was actually compared, when the keys are
+    /// identifiers and so do not show it.
+    public let aText: String?
+    public let bText: String?
+
+    public init(a: String, b: String, percent: Int, aText: String? = nil, bText: String? = nil) {
+        self.a = a
+        self.b = b
+        self.percent = percent
+        self.aText = aText
+        self.bText = bText
+    }
 }
 
 public struct CaseDuplicate: Equatable, Sendable {
@@ -35,18 +47,25 @@ public enum SimilarKeys {
             .sorted { $0.keys[0] < $1.keys[0] }
     }
 
-    /// Near-duplicate keys, with the deliberate ones filtered out.
+    /// Near-duplicate strings, with the deliberate ones filtered out.
+    ///
+    /// The comparison is on the *source-language text*, never on the key. Two
+    /// keys spelled `Scene.Collections.remove` and `Scene.Collections.removeMe`
+    /// share a namespace, not a meaning — on a project that keys by identifier,
+    /// comparing keys reports every sibling in every namespace and buries the
+    /// real signal, which is one English string entered twice.
     public static func similar(
-        keys: [String],
+        entries: [(key: String, text: String)],
         threshold: Int,
         ignored: Set<String>
     ) -> [SimilarPair] {
-        let usable = keys.filter { key in
-            KeyHeuristics.isTranslatable(key)
-                && key.count >= 6
-                && !FormatSpecifierScanner.containsSpecifier(key)
+        let usable = entries.filter { entry in
+            KeyHeuristics.isTranslatable(entry.text)
+                && entry.text.count >= 6
+                && !FormatSpecifierScanner.containsSpecifier(entry.text)
         }
-        var candidates: [(key: String, chars: [Character])] = usable.map { ($0, Array($0.lowercased())) }
+        var candidates: [(key: String, text: String, chars: [Character])] =
+            usable.map { ($0.key, $0.text, Array($0.text.lowercased())) }
         candidates.sort { left, right in
             left.chars.count == right.chars.count ? left.key < right.key : left.chars.count < right.chars.count
         }
@@ -60,16 +79,26 @@ public enum SimilarKeys {
             for other in (index + 1)..<candidates.count {
                 let b = candidates[other]
                 if b.chars.count > longestComparable { break }   // sorted by length
-                if a.chars == b.chars { continue }               // a case duplicate
+                // Skip only when `caseDuplicates` will report the pair anyway.
+                // Two identifier keys whose English differs solely in case are
+                // not case-duplicate *keys*, so nothing else would catch them.
+                if a.chars == b.chars, a.key.lowercased() == b.key.lowercased() { continue }
                 if ignored.contains(canonicalPair(a.key, b.key)) { continue }
-                if differOnlyInDigits(a.key, b.key) { continue }
-                if differByOneUnrelatedWord(a.key, b.key) { continue }
+                if differOnlyInDigits(a.text, b.text) { continue }
+                if differByOneUnrelatedWord(a.text, b.text) { continue }
                 let limit = Similarity.distanceLimit(
                     longest: max(a.chars.count, b.chars.count),
                     threshold: threshold
                 )
                 let percent = Similarity.percent(a.chars, b.chars, limit: limit)
-                if percent >= threshold { pairs.append(SimilarPair(a: a.key, b: b.key, percent: percent)) }
+                guard percent >= threshold else { continue }
+                pairs.append(SimilarPair(
+                    a: a.key,
+                    b: b.key,
+                    percent: percent,
+                    aText: a.text == a.key ? nil : a.text,
+                    bText: b.text == b.key ? nil : b.text
+                ))
             }
         }
         pairs.sort { $0.percent == $1.percent ? $0.a < $1.a : $0.percent > $1.percent }

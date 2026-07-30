@@ -100,7 +100,55 @@ Found by an independent audit of this code, each with a regression test:
 
 ### Interface
 
-- `--json` on every command, rendered from the same report as the text output.
+- `--json` on every command that reports findings, rendered from the same report
+  as the text output.
 - Per-command flag grammars: a flag a command does not accept is an error.
-- Nothing is written without `--out`, `--template` or `--apply`.
+- `check`, `scan`, `prune` and `xcloc` write nothing without `--out`,
+  `--template` or `--apply`; `add` and `set` write by default and preview with
+  `--dry-run`.
 - Exit codes: 0 clean, 1 findings, 2 usage or I/O error.
+
+### Fixed after running against five shipping projects
+
+IceCubesApp, Mastodon for iOS, Whisky, Loop and damus. Each fix has a regression
+test built from the catalog that exposed it.
+
+- `%arg` — the token for a substitution's own argument — parsed as `%a` plus
+  `rg`. Hex float is gone from the grammar; it has no place in UI text.
+- `%#@name@` was not counted as consuming the argument its substitution
+  declares, so every substitution-based translation looked like it had dropped
+  all of them. Arguments consumed inside a substitution's variation values were
+  invisible for the same reason.
+- Plural categories were compared against the flat source rather than their
+  counterpart. English "1 new post" is German "Ein neuer Beitrag": the singular
+  spells the number out and carries no specifier, correctly.
+- Translations were compared against the key rather than the source-language
+  value, so a project keying by identifier had every string checked against
+  something no user sees. Together these four accounted for 270 of the 272
+  format mismatches first reported on IceCubesApp.
+- Near-duplicate detection compared keys, not the strings they render. On
+  Mastodon that reported 554 pairs of deliberately distinct siblings and hid the
+  real finding: 139 English strings entered under more than one key.
+- `scan` demanded a catalog entry for `Text("\(name)")`, which extracts to the
+  key `"%@"` — a string `check` already classifies as untranslatable. The filter
+  now judges the extracted key rather than the source text, and `ignoreStrings`
+  applies to interpolated literals for the first time.
+- Discovery walked into `.xcloc` bundles and treated the catalog copies under
+  `Source Contents` as project catalogs, so a `.strings`-based project appeared
+  to have three targets pointing at an export artifact.
+- Discovery could emit two targets with the same name, leaving `--target` unable
+  to address either.
+- A parameter name from the built-in list overrode direct evidence about a
+  project's own type, so `PEError(message:)` was reported as a display string.
+- A variation gap the source language shares — a device variation with no
+  `other` case — was reported once per language, sending every translator after
+  a defect only the source can fix.
+- `--` did not stop `--help` detection: `xclocsmith set -- "--help" "値"`
+  printed the help page and wrote nothing.
+- A value flag swallowed a following flag as its value, so `scan --out --json`
+  wrote a file named `--json`.
+
+### Tests
+
+133, including a CLI layer suite covering flag grammar, exit codes, `--json`
+shape, and the guarantee that reading commands leave the tree byte-identical.

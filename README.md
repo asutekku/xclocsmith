@@ -23,6 +23,80 @@ Scanned 312 Swift file(s), 1584 user-visible string(s).
 2 failing finding(s), 1 advisory. Exit 1.
 ```
 
+## Tried on real projects
+
+Every rule here was calibrated against shipping open-source apps, not against
+fixtures. `xclocsmith init && xclocsmith check` was run unmodified on each:
+
+| Project | ★ | Catalogs | Keys | Languages | Swift files | `check` |
+|---|---:|---:|---:|---:|---:|---:|
+| [Whisky](https://github.com/Whisky-App/Whisky) | 15.1k | 1 | 152 | 21 | 64 | 0.05s |
+| [Loop](https://github.com/MrKai77/Loop) | 11.3k | 1 | 404 | 13 | 149 | 0.10s |
+| [IceCubesApp](https://github.com/Dimillian/IceCubesApp) | 7.0k | 1 | 733 | 18 | 424 | 0.87s |
+| [Mastodon for iOS](https://github.com/mastodon/mastodon-ios) | 2.3k | 9 | 980 | 53 | 792 | 1.01s |
+| [damus](https://github.com/damus-io/damus) | 2.1k | — | — | — | — | exit 2 |
+
+### What it found
+
+**Format specifiers that would render wrong or read past the arguments.** Seven
+in Mastodon, all Albanian, one of which reads a second argument the call never
+supplies:
+
+```
+FAIL  format specifiers disagree with the source string (7):
+  - [sq] "Scene.Compose.Poll.OptionNumber" has 2 format specifier(s), the source has 1
+      "Option %ld"  →  "%ld nga %ld"
+  - [sq] "Scene.Search.Recommend.HashTag.PeopleTalking" has 0 format specifier(s), the source has 1
+      "%@ people are talking"  →  "Po flasin %1 persona"
+```
+
+Two more in IceCubesApp: Catalan `%@ posts` → `% publicacions`, where the `@`
+was dropped and the format string is now malformed, and Polish `%@ already
+exists` → `już istnieje`, where the tag name never renders at all.
+
+**Plural categories that CLDR requires and the catalog does not have.** 32 in
+IceCubesApp, in exactly the three languages that need `few` and `many` —
+Belarusian, Ukrainian and Polish. Xcode itself does not ask for these. A 33rd is
+a device variation with no `other` case, missing in all 19 languages at once and
+so reported once, against the source, where it can actually be fixed.
+
+**Variations that exist but are empty**, which render as a blank label rather
+than a missing one. Eleven in Mastodon: nine Russian `other` cases — the
+category Russian uses for fractional counts — plus one Japanese string whose
+only category is empty, so it is blank in Japanese always.
+
+**The same English string entered under several keys.** 139 in Mastodon: six
+keys meaning "Cancel", five meaning "Follow", and "Followers" / "followers" /
+"FOLLOWERS" as three separate entries — each one paid for 53 times.
+
+**Keys differing only in case.** Three in Loop, including `Check for Updates…`
+and `Check for updates…`, both translated into 13 languages.
+
+**A `.strings` project, correctly refused.** damus keeps an exported `.xcloc`
+in the repo, whose `Source Contents` contains a *copy* of a string catalog.
+Auditing that copy — or offering to prune it — would be worse than useless, so
+discovery walks past `.xcloc` bundles and the run exits 2 saying no catalogs
+were found.
+
+**Nothing, on Loop.** `scan` reads 149 files and 258 user-visible strings and
+exits 0. A linter that cannot come back clean is not measuring anything.
+
+### What it got wrong
+
+More usefully: on IceCubesApp the first run reported **272 format mismatches**.
+Two were real. The other 270 were this tool misreading correct data — `%arg`
+parsed as a hex-float specifier, `%#@name@` not counted as consuming its
+argument, arguments consumed inside a substitution's own variations, and plural
+categories compared against the flat source instead of their counterpart. The
+next four projects cost six more fixes, including comparing near-duplicates by
+key on a project that keys by identifier (554 findings, none of them real) and
+demanding a catalog entry for `Text("\(name)")`, which extracts to `"%@"` and
+holds nothing to translate.
+
+Each of those is now a regression test in
+[`RealWorldTests.swift`](Tests/XCLocSmithTests/RealWorldTests.swift), built from
+the catalog that exposed it.
+
 ## Install
 
 Requires macOS 13+ and a Swift 5.9 toolchain (Xcode 15 or newer — the same
@@ -179,10 +253,11 @@ Other guarantees:
 
 ## For agents
 
-Every command takes `--json`, and the JSON is generated from the same report the
-human output renders, so the two cannot disagree. `failures` always equals the
+Every command that produces findings takes `--json` (all but `init`), and the
+JSON is generated from the same report the human output renders, so the two
+cannot disagree. For `check`, `scan`, `prune` and `xcloc`, `failures` equals the
 number of findings enumerated in the payload — an agent that fixes everything in
-the JSON reaches exit 0.
+the JSON reaches exit 0. `lookup` reports its matches under `found` instead.
 
 ```bash
 xclocsmith scan --json | jq '.missingKeys[] | {value, file, line, catalog}'
@@ -201,8 +276,14 @@ Rules the CLI follows so automation cannot go wrong quietly:
 
 - A flag a command does not accept is an error, not a no-op. `add --dry-run`
   does a dry run; it never writes while pretending to preview.
-- Nothing is written unless you pass `--out`, `--template`, or `--apply`.
+- The reading commands — `check`, `scan`, `prune`, `xcloc check`, `xcloc apply`
+  — write nothing unless you pass `--out`, `--template`, or `--apply`.
+- `add` and `set` are the write commands: they write by default, and `--dry-run`
+  shows what they would do instead.
 - `prune` reports by default and only writes with `--apply`.
+- A value flag whose next argument is another flag is an error. `scan --out
+  --json` is a forgotten filename, and swallowing it would create a file called
+  `--json`.
 - `lookup` exits 1 when nothing matched, so it can gate a script.
 - Exit codes: **0** clean, **1** findings, **2** usage or I/O error. A
   misconfiguration never masquerades as a finding — an unknown `--lang` fails

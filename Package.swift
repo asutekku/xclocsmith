@@ -17,6 +17,6 @@ let package = Package(
         // MCP server over stdio. Reading and writing tools are separate, so a
         // host can grant one set and confirm the other.
         .executableTarget(name: "xclocsmith-mcp", dependencies: ["XCLocSmithKit"]),
-        .testTarget(name: "XCLocSmithTests", dependencies: ["XCLocSmithKit"]),
+        .testTarget(name: "XCLocSmithTests", dependencies: ["XCLocSmithKit", "xclocsmith"]),
     ]
 )

@@ -94,7 +94,10 @@ func run() -> Int32 {
         spec = resolved
         rest = Array(arguments.dropFirst())
     }
-    if rest.contains("--help") || rest.contains("-h") {
+    // Only words before `--` are flags. Scanning all of `rest` would make
+    // `set -- "--help" "値"` print help instead of writing the key, which is
+    // exactly the case `--` exists to allow.
+    if rest.prefix(while: { $0 != "--" }).contains(where: { $0 == "--help" || $0 == "-h" }) {
         print(Help.command(spec))
         return exitClean
     }

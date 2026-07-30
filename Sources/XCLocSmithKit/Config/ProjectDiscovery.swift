@@ -8,6 +8,21 @@ import Foundation
 /// prevents false orphans without asserting that every target ships every
 /// shared string — an assertion only the project's build settings can settle.
 public enum ProjectDiscovery {
+    /// Directory bundles that are never project sources.
+    ///
+    /// `.xcloc` matters most: an exported localization catalog carries a *copy*
+    /// of every string catalog under "Source Contents", so walking into one
+    /// makes the tool audit — and offer to prune — an export artifact instead
+    /// of the files Xcode actually builds.
+    static let opaqueBundleSuffixes = [
+        ".xcodeproj", ".xcworkspace", ".xcloc", ".xcarchive", ".xcassets",
+        ".app", ".framework", ".bundle", ".playground",
+    ]
+
+    static func isOpaqueBundle(_ component: String) -> Bool {
+        opaqueBundleSuffixes.contains { component.hasSuffix($0) }
+    }
+
     public static func isDirectory(_ path: String) -> Bool {
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
@@ -18,11 +33,11 @@ public enum ProjectDiscovery {
         var found: [String] = []
         while let relative = enumerator.nextObject() as? String {
             let components = relative.split(separator: "/").map(String.init)
-            if let last = components.last, excluded.contains(last) || last.hasSuffix(".xcodeproj") {
+            if let last = components.last, excluded.contains(last) || isOpaqueBundle(last) {
                 enumerator.skipDescendants()
                 continue
             }
-            if components.contains(where: { excluded.contains($0) || $0.hasSuffix(".xcodeproj") }) { continue }
+            if components.contains(where: { excluded.contains($0) || isOpaqueBundle($0) }) { continue }
             if relative.hasSuffix(".xcstrings") { found.append(relative) }
         }
         return found.sorted()
@@ -31,7 +46,8 @@ public enum ProjectDiscovery {
     static func containsSwift(_ directory: String, excluded: Set<String>) -> Bool {
         guard let enumerator = FileManager.default.enumerator(atPath: directory) else { return false }
         while let relative = enumerator.nextObject() as? String {
-            if relative.split(separator: "/").contains(where: { excluded.contains(String($0)) }) { continue }
+            let components = relative.split(separator: "/").map(String.init)
+            if components.contains(where: { excluded.contains($0) || isOpaqueBundle($0) }) { continue }
             if relative.hasSuffix(".swift") { return true }
         }
         return false
@@ -40,7 +56,7 @@ public enum ProjectDiscovery {
     public static func discoverSourceDirectories(root: String, excluded: Set<String>) -> [String] {
         guard let entries = try? FileManager.default.contentsOfDirectory(atPath: root) else { return [] }
         return entries.sorted().filter { entry in
-            guard !excluded.contains(entry), !entry.hasPrefix("."), !entry.hasSuffix(".xcodeproj") else { return false }
+            guard !excluded.contains(entry), !entry.hasPrefix("."), !isOpaqueBundle(entry) else { return false }
             let path = URL(fileURLWithPath: root).appendingPathComponent(entry).path
             return isDirectory(path) && containsSwift(path, excluded: excluded)
         }
@@ -76,14 +92,27 @@ public enum ProjectDiscovery {
             )]
         }
 
+        // Two catalog directories under one top-level folder would otherwise
+        // both be named after it. Duplicate target names make the config
+        // ambiguous — `--target` could not address either of them.
+        var used = Set<String>()
         return byDirectory.keys.sorted().map { directory in
             let group = (byDirectory[directory] ?? []).sorted()
             let ownerName = owner(of: group[0])
             var sources: [String] = []
             if let ownerName, sourceDirectories.contains(ownerName) { sources.append(ownerName) }
             if sources.isEmpty { sources = [directory] }
+            var name = ownerName ?? directory
+            if !used.insert(name).inserted {
+                name = directory
+                var suffix = 2
+                while !used.insert(name).inserted {
+                    name = "\(directory) (\(suffix))"
+                    suffix += 1
+                }
+            }
             return Target(
-                name: ownerName ?? directory,
+                name: name,
                 sources: sources,
                 referenceSources: shared,
                 catalogs: group
@@ -120,7 +149,8 @@ public enum FileCollector {
             while let relative = enumerator.nextObject() as? String {
                 let components = relative.split(separator: "/").map(String.init)
                 if let last = components.last,
-                   configuration.excludedDirectories.contains(last) || last.hasSuffix(".xcodeproj") {
+                   configuration.excludedDirectories.contains(last)
+                    || ProjectDiscovery.isOpaqueBundle(last) {
                     enumerator.skipDescendants()
                     continue
                 }

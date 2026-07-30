@@ -26,6 +26,26 @@ public struct FormatMismatch: Equatable, Sendable {
     public let key: String
     public let language: String
     public let problem: String
+    /// The two strings compared. An identifier key names the entry but not the
+    /// defect: `"Scene.Compose.Poll.OptionNumber" has 2 specifiers` says
+    /// nothing a translator can act on until they see "Option %ld" and
+    /// "%ld nga %ld".
+    public let source: String?
+    public let translation: String?
+
+    public init(
+        key: String,
+        language: String,
+        problem: String,
+        source: String? = nil,
+        translation: String? = nil
+    ) {
+        self.key = key
+        self.language = language
+        self.problem = problem
+        self.source = source
+        self.translation = translation
+    }
 }
 
 public struct LanguageCoverage: Equatable, Sendable {
@@ -91,11 +111,14 @@ public struct CatalogReport: Equatable, Sendable {
                 ])
             }),
             "similarKeys": .array(similarKeys.map { pair in
-                .object([
+                var fields: [String: JSONValue] = [
                     "a": .string(pair.a),
                     "b": .string(pair.b),
                     "similarity": .number("\(pair.percent)"),
-                ])
+                ]
+                if let text = pair.aText { fields["aText"] = .string(text) }
+                if let text = pair.bText { fields["bText"] = .string(text) }
+                return .object(fields)
             }),
             "pluralGaps": .array(pluralGaps.map { gap in
                 .object([
@@ -105,11 +128,16 @@ public struct CatalogReport: Equatable, Sendable {
                 ])
             }),
             "formatMismatches": .array(formatMismatches.map { mismatch in
-                .object([
+                var fields: [String: JSONValue] = [
                     "key": .string(mismatch.key),
                     "language": .string(mismatch.language),
                     "problem": .string(mismatch.problem),
-                ])
+                ]
+                if let source = mismatch.source { fields["source"] = .string(source) }
+                if let translation = mismatch.translation {
+                    fields["translation"] = .string(translation)
+                }
+                return .object(fields)
             }),
         ])
     }

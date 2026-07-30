@@ -132,8 +132,16 @@ public enum SourceAnalyzer {
                     // is stored as "Hello %@". We cannot know the specifier
                     // types statically, so the pattern matches any of them.
                     guard let pattern = literal.formatPattern else { continue }
+                    // Judge the key that would be extracted, not the source
+                    // text: `Text("\(name)")` extracts to "%@", which has
+                    // nothing in it for a translator to act on. Filtering on
+                    // the raw literal instead sees the word `name` and demands
+                    // a catalog entry for a string that is pure interpolation.
+                    let key = literal.formatKey ?? literal.value
+                    guard isReportable(key, confidence: confidence),
+                          !ignoredStrings.contains(key) else { continue }
                     result.strings.append(FoundString(
-                        value: literal.formatKey ?? literal.value,
+                        value: key,
                         file: file.displayPath,
                         line: literal.line,
                         context: contextName,
