@@ -166,15 +166,27 @@ public struct Configuration {
 
     // MARK: - Loading
 
+    /// The nearest `.xclocsmith.json` at or above a directory.
+    ///
+    /// Walked over path components rather than by repeatedly asking `URL` for a
+    /// parent. `deletingLastPathComponent()` does not reliably converge: once it
+    /// runs out of path to remove it answers `…/../`, which is *longer* than
+    /// what it was given and never compares equal to it, so the obvious
+    /// `while parent != current` loop has no termination condition at all. It
+    /// terminates on a developer's machine and did not on a GitHub macOS
+    /// runner, where `check` spent twelve minutes and 1.2 GB assembling an
+    /// ever-longer path before the kernel killed it.
+    ///
+    /// Removing a component at a time is bounded by the depth of the path, so
+    /// there is nothing left to get wrong.
     public static func findConfigFile(startingAt directory: String) -> String? {
-        var current = URL(fileURLWithPath: directory).standardized
-        while true {
-            let candidate = current.appendingPathComponent(fileName)
-            if FileManager.default.fileExists(atPath: candidate.path) { return candidate.path }
-            let parent = current.deletingLastPathComponent()
-            if parent.path == current.path { return nil }
-            current = parent
+        var components = URL(fileURLWithPath: directory).standardized.pathComponents
+        while !components.isEmpty {
+            let candidate = NSString.path(withComponents: components + [fileName])
+            if FileManager.default.fileExists(atPath: candidate) { return candidate }
+            components.removeLast()
         }
+        return nil
     }
 
     public static func load(explicitPath: String?, useConfigFile: Bool, workingDirectory: String) throws -> Configuration {
