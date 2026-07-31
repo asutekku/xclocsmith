@@ -148,8 +148,9 @@ Nine open-source apps, `init && check && scan` with no hand-written config — 8
 - Whisky renders one of its two "Remove" buttons as German `"Löschen"` — delete — and the other as `"Entfernen"`.
 - DuckDuckGo declares `NSLocalNetworkUsageDescription` in its Info.plist and localizes it nowhere, so that permission prompt is English for every non-English user.
 - GoMap's GPX widget ships eleven fewer languages than the app beside it, so those users get a translated app and an English widget.
+- GoMap also keys 94 strings by their English sentence, holding 1,842 translations between them — one in 31 languages. Rewording any of those sentences orphans every translation under it silently.
 
-`check` tops out at 3.3s and `scan` at 2.9s, both on DuckDuckGo's 19 catalogs and 3,196 Swift files; Mastodon's 53 locales take 1.8s, and every other run in the table finishes in under a second. The full table, the analysis and the numbers per project are in [docs/results.md](docs/results.md); [`Scripts/corpus.sh`](Scripts/corpus.sh) reproduces them at the commits they were measured against.
+`check` tops out at 3.0s and `scan` at 2.6s, both on DuckDuckGo's 19 catalogs and 3,196 Swift files; Mastodon's 53 locales take 1.8s, and every other run in the table finishes in under a second. The full table, the analysis and the numbers per project are in [docs/results.md](docs/results.md); [`Scripts/corpus.sh`](Scripts/corpus.sh) reproduces them at the commits they were measured against.
 
 ## Commands
 

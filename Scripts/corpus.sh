@@ -53,8 +53,8 @@ run() {
         echo "Build it first: swift build -c release" >&2
         exit 1
     fi
-    printf '%-18s %6s %7s %9s %10s %8s %10s %11s\n' \
-        project format plural diverge hygiene project duplicate unlocalized
+    printf '%-18s %6s %7s %9s %10s %8s %14s %10s %11s\n' \
+        project format plural diverge hygiene project sentence duplicate unlocalized
     echo "$PROJECTS" | while IFS='|' read -r name repo commit; do
         [ -d "$DIR/$name" ] || { echo "$name: not cloned"; continue; }
         ( cd "$DIR/$name" && "$XCLOCSMITH" check --json >/tmp/corpus-check.json 2>/dev/null || true )
@@ -78,8 +78,11 @@ dup = len(groups) + sum(len(c['similarKeys']) for c in cats)
 hyg = [f for c in cats for f in c.get('hygiene', [])]
 hygiene = f"{len([f for f in hyg if f['isFailure']])}/{len(hyg)}"
 project = len(check.get('project', []))
+sentence = [s for c in cats for s in c.get('sentenceKeys', [])]
+risk = sum(s['translationsAtRisk'] for s in sentence)
+sent = f"{len(sentence)}/{risk}"
 unloc = len(scan['missingKeys']) if scan else '?'
-print(f'{name:<18} {fmt:6} {plural:7} {diverge:9} {hygiene:>10} {project:8} {dup:10} {unloc:>11}')
+print(f'{name:<18} {fmt:6} {plural:7} {diverge:9} {hygiene:>10} {project:8} {sent:>14} {dup:10} {unloc:>11}')
 PY
     done
 }
