@@ -14,7 +14,7 @@ import XCLocSmithKit
 enum MCP {
     static let protocolVersion = "2025-06-18"
     static let serverName = "xclocsmith"
-    static let serverVersion = "0.1.0"
+    static let serverVersion = "0.1.1"
 
     static let instructions = """
         Audits and edits Xcode String Catalogs (.xcstrings).

@@ -124,7 +124,7 @@ The whole document, from the same two findings — this is the entire output, no
               }
             }
           ],
-          "version": "0.1.0"
+          "version": "0.1.1"
         }
       }
     }

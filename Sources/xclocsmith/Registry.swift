@@ -1,7 +1,7 @@
 import Foundation
 import XCLocSmithKit
 
-let toolVersion = "0.1.0"
+let toolVersion = "0.1.1"
 
 enum Registry {
     static let check = CommandSpec(
