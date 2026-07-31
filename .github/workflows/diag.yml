@@ -6,26 +6,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: swift build
-      - name: Environment
+      - name: Locate and run
         run: |
-          echo "TMPDIR=$TMPDIR"
-          echo "RUNNER_TEMP=$RUNNER_TEMP"
-          echo "PWD=$PWD"
-          swift -e 'import Foundation; print("NSTemporaryDirectory:", NSTemporaryDirectory()); print("temporaryDirectory:", FileManager.default.temporaryDirectory.path)'
-      - name: Run check in an empty temp dir, exactly as the test does
-        run: |
+          bin="$(swift build --show-bin-path)"
+          echo "bin path: $bin"
+          ls -la "$bin" | head -20
           root=$(swift -e 'import Foundation; print(FileManager.default.temporaryDirectory.path)')
           empty="$root/diagcase/empty"
           mkdir -p "$empty"
-          echo "empty dir: $empty"
-          echo "--- ancestors, looking for a config ---"
-          d="$empty"
-          while [ "$d" != "/" ]; do
-            [ -e "$d/.xclocsmith.json" ] && echo "CONFIG AT $d"
-            d=$(dirname "$d")
-          done
-          echo "--- run (30s cap) ---"
           cd "$empty"
+          echo "--- run (30s cap) ---"
           set +e
-          /usr/bin/time -p timeout 30 "$GITHUB_WORKSPACE/.build/debug/xclocsmith" check
+          /usr/bin/time -p timeout 30 "$bin/xclocsmith" check
+          echo "exit=$?"
+          echo "--- with an explicit root ---"
+          /usr/bin/time -p timeout 30 "$bin/xclocsmith" check --no-config
+          echo "exit=$?"
+      - name: The failing test alone, with a cap
+        run: |
+          set +e
+          timeout 300 swift test --filter testProjectWithNoCatalogsIsAnErrorNotACleanRun 2>&1 | tail -20
           echo "exit=$?"
