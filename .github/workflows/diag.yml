@@ -1,0 +1,31 @@
+name: Diag
+on: [push]
+jobs:
+  diag:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift build
+      - name: Environment
+        run: |
+          echo "TMPDIR=$TMPDIR"
+          echo "RUNNER_TEMP=$RUNNER_TEMP"
+          echo "PWD=$PWD"
+          swift -e 'import Foundation; print("NSTemporaryDirectory:", NSTemporaryDirectory()); print("temporaryDirectory:", FileManager.default.temporaryDirectory.path)'
+      - name: Run check in an empty temp dir, exactly as the test does
+        run: |
+          root=$(swift -e 'import Foundation; print(FileManager.default.temporaryDirectory.path)')
+          empty="$root/diagcase/empty"
+          mkdir -p "$empty"
+          echo "empty dir: $empty"
+          echo "--- ancestors, looking for a config ---"
+          d="$empty"
+          while [ "$d" != "/" ]; do
+            [ -e "$d/.xclocsmith.json" ] && echo "CONFIG AT $d"
+            d=$(dirname "$d")
+          done
+          echo "--- run (30s cap) ---"
+          cd "$empty"
+          set +e
+          /usr/bin/time -p timeout 30 "$GITHUB_WORKSPACE/.build/debug/xclocsmith" check
+          echo "exit=$?"
