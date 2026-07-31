@@ -1,7 +1,6 @@
 # Configuration
 
-`.xclocsmith.json`, found by walking up from the working directory. Everything
-is optional; `xclocsmith init` writes one.
+`.xclocsmith.json`, found by walking up from the working directory. Everything is optional; `xclocsmith init` writes one.
 
 ```json
 {
