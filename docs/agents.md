@@ -21,7 +21,7 @@ Neither hook asks about translation coverage: a string added in this edit has no
 
 ## MCP server
 
-`xclocsmith-mcp` speaks the Model Context Protocol over stdio. It is how an agent runs the [translation loop](translating.md) itself rather than being handed a template: find what is missing, write it, check its own work. The reason to prefer it over shelling out is permission granularity — the reading tools and the writing tools are separate, annotated tools, so a host can grant one set and confirm the other.
+`xclocsmith-mcp` speaks the Model Context Protocol over stdio. It is how an agent runs the [translation loop](translating.md) itself: `translation_template` hands it a payload of everything untranslated, already in the shape each language needs, and `add_translations` then `check_catalogs` merge and verify what it wrote. The reason to prefer it over shelling out is permission granularity — the reading tools and the writing tools are separate, annotated tools, so a host can grant one set and confirm the other.
 
 ```json
 {
@@ -33,8 +33,10 @@ Neither hook asks about translation coverage: a string added in this edit has no
 
 | Tool | Reads | Writes |
 |---|---|---|
-| `check_catalogs`, `scan_sources`, `lookup_keys`, `xcloc_check` | ✔ | — |
+| `check_catalogs`, `scan_sources`, `translation_template`, `lookup_keys`, `xcloc_check` | ✔ | — |
 | `add_translations`, `set_translation`, `xcloc_apply` | ✔ | on request |
 | `prune_catalogs` | ✔ | on request, and marked destructive |
 
 Every tool takes an absolute `projectRoot`, because an MCP server has no working directory. Writing tools default to reporting — `prune_catalogs` and `xcloc_apply` do nothing until `apply: true`, and `add_translations` / `set_translation` accept `dryRun` — and results carry the same report the CLI's `--json` emits. The server has no dependencies either; `swift build` produces it alongside the CLI.
+
+The server's own instructions tell the model the order and what the results mean: a key `add_translations` reports `skipped` was left as `"TODO"` and is still missing, and a `refused` key kept a plural or device variation that a plain string would have destroyed. Both are cases where a model that only read the exit code would report success.

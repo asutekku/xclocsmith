@@ -65,7 +65,7 @@ xclocsmith scan      # user-visible strings in code that no catalog knows about
 xclocsmith init      # optional — pins targets, languages and your own view types
 ```
 
-Both `check` and `scan` exit `1` on findings and write nothing. Without a config, the project is discovered from its layout.
+Both exit `1` on findings, and neither writes anything unless you ask for a translation template. Without a config, the project is discovered from its layout.
 
 ## What it finds
 
@@ -78,6 +78,16 @@ Both `check` and `scan` exit `1` on findings and write nothing. Without a config
 - [**Gaps around the catalogs**](docs/project-checks.md) — an `Info.plist` prompt, a widget left in English.
 - [**Keys that are English sentences**](docs/checking.md#keys-that-are-sentences) — reword one, orphan every translation.
 - [**Stranded translations**](docs/checking.md#reviewing-a-change-diff) — `diff` against a git ref, after a source edit.
+
+## What you can do with it
+
+- [**Translate with a model**](#translating-with-a-model) — and verify the result before it merges.
+- [**Hand the tools to an agent**](docs/agents.md) — an MCP server and an editor hook.
+- [**Gate CI**](#in-ci) — annotations, SARIF, and baselines for existing debt.
+- [**Edit catalogs**](docs/editing.md) — `add`, `set`, `prune`, in Xcode's byte-exact format.
+- [**Import an `.xcloc` or `.xliff`**](docs/editing.md#localization-catalogs-xcloc) — validated first, which Xcode's import isn't.
+- [**Rename a key**](docs/editing.md#renaming-a-key) — catalog and call sites, translations carried along.
+- [**Look up an existing key**](#commands) — before you add a third "Save".
 
 ## Translating with a model
 
@@ -93,13 +103,21 @@ xclocsmith add           →  merged in, plurals intact, nothing else touched
 xclocsmith check         →  exit 0, or the findings go back to the model
 ```
 
+With `xclocsmith` on `PATH`, that is something you can simply ask for:
+
+> Use xclocsmith to translate every missing Japanese string in this project.
+
+No script and no wrapper — the agent runs the loop itself. `--help` lists exactly what each command takes, every step is exit-coded, and `add` reports each key as written, skipped or refused, so a model cannot mistake a half-applied payload for success. An [MCP server](docs/agents.md#mcp-server) and a [`PostToolUse` hook](docs/agents.md#editor-and-commit-hooks) sharpen it further.
+
+Unattended, it is three commands:
+
 ```bash
 xclocsmith check --lang ru --out work.json
 cat work.json | your-model | xclocsmith add -
 xclocsmith check --lang ru
 ```
 
-[`Examples/translate.sh`](Examples/translate.sh) runs that across every language and re-prompts the model with the linter's own findings when one fails. Agents can skip the script: an [MCP server](docs/agents.md#mcp-server) exposes reading and writing as separately permissioned tools, and a [`PostToolUse` hook](docs/agents.md#editor-and-commit-hooks) catches a broken specifier while the agent still has the file open.
+[`Examples/translate.sh`](Examples/translate.sh) runs that across every language and re-prompts the model with the linter's own findings when one fails.
 
 More: [translating](docs/translating.md) · [agents and automation](docs/agents.md)
 
@@ -168,7 +186,7 @@ Exit codes: `0` clean, `1` findings, `2` usage or I/O error. Every reporting com
 
 | | |
 |---|---|
-| [Translating with a model](docs/translating.md) | The loop, the template format, and what the verify step catches. |
+| [Translating with a model](docs/translating.md) | Asking an agent, the loop, the template format, and what verify catches. |
 | [Checking catalogs](docs/checking.md) | Failing rules, advisories, argument order, `diff`. |
 | [Scanning your source](docs/scanning.md) | What `scan` recognizes, bypasses, and unreferenced keys. |
 | [Project checks](docs/project-checks.md) | Info.plist strings and per-bundle language gaps. |
@@ -187,7 +205,7 @@ Exit codes: `0` clean, `1` findings, `2` usage or I/O error. Every reporting com
 
 ## Contributing
 
-`swift test` runs everything — 330 tests. The suite doubles as the specification for what counts as a user-visible string: `ClassifierTests` is a table of Swift snippets and the keys Xcode would extract from them, `RecallTests` holds the idioms real projects use. Detection changes belong there first.
+`swift test` runs everything — 335 tests. The suite doubles as the specification for what counts as a user-visible string: `ClassifierTests` is a table of Swift snippets and the keys Xcode would extract from them, `RecallTests` holds the idioms real projects use. Detection changes belong there first.
 
 ## Licence
 

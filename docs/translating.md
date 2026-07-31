@@ -16,9 +16,49 @@ xclocsmith check         →  exit 0, or the findings go back to the model
 
 Every step speaks JSON (`--json` on everything but `init`) and every step is exit-coded, so nothing in the loop needs prose parsing and nothing needs a human to look at it.
 
-## One command
+## Just ask an agent
 
-[`Examples/translate.sh`](../Examples/translate.sh) is that loop, in 133 lines of shell with the comments:
+With `xclocsmith` on `PATH`, there is no setup and no script. In Claude Code, Cursor, or any agent that can run a command:
+
+> Use xclocsmith to translate every missing Japanese string in this project.
+
+The agent runs the loop itself:
+
+```console
+$ xclocsmith check --lang ja --out work.json
+  FAIL  missing ja translations (12): …
+Wrote work-App-Localizable-ja.json
+Wrote work-App-Errors-ja.json
+```
+
+One payload per catalog and language, each naming its own catalog and language, so the agent applies them with `xclocsmith add work-App-Localizable-ja.json` and no other arguments. Then `xclocsmith check --lang ja` again — and if it exits 1, the findings name the key and the language, and go straight back into the next attempt.
+
+Nothing above had to be explained to the model. That is deliberate:
+
+- **`--help` lists exactly the flags a command takes**, and an unknown flag is an error rather than a silent no-op, so a guessed invocation fails loudly instead of appearing to work.
+- **The template carries the shape**, so the model never has to know that Russian takes four plural forms — the categories arrive as keys waiting to be filled.
+- **`add` reports every key** as written, skipped or refused. A slot still holding `"TODO"` is skipped and stays missing; a key that would have flattened a plural is refused. A model that only read the exit code would call both a success.
+- **The verify step is a different program from the one that translated**, which is the entire point. It has no stake in the answer being right.
+
+Two optional pieces, when the agent is already working in the project:
+
+- **The [MCP server](agents.md#mcp-server)** exposes the same loop as separate, individually-permissioned tools — `translation_template`, `add_translations`, `check_catalogs` — so a host can grant the reading half freely and confirm the writes.
+- **The [`PostToolUse` hook](agents.md#editor-and-commit-hooks)** works the other end: when an agent writes a Swift file it hears immediately that the string it just typed reaches no catalog, and when it writes a catalog, that it broke a format specifier. Exit 2 hands the message back, so it fixes what it wrote in the same turn.
+
+Worth putting in `CLAUDE.md` or `AGENTS.md`, so it happens without being asked:
+
+```markdown
+Localization is checked by `xclocsmith`. Never hand-edit an `.xcstrings` file.
+
+- After adding user-visible strings, run `xclocsmith scan`.
+- To translate: `xclocsmith check --lang <code> --out work.json`, replace every
+  `"TODO"` in each file it writes, apply each with `xclocsmith add <file>`, then
+  run `xclocsmith check --lang <code>` again and fix what it reports.
+```
+
+## In a script, or in CI
+
+[`Examples/translate.sh`](../Examples/translate.sh) is the same loop unattended, in 133 lines of shell:
 
 ```console
 $ Examples/translate.sh ja
@@ -51,7 +91,7 @@ cat work.json | your-model | xclocsmith add -
 xclocsmith check --lang ru                   # exit 0 only if it is actually right
 ```
 
-`add` reads `-` for stdin, and `check --out` writes one template per catalog and language — a project with five catalogs gets five files named after them, so the fan-out is a `for` loop rather than a merge.
+`add` reads `-` for stdin. `check --out` writes one template per catalog and language — with a single catalog it uses the name you gave, and with several it derives one per catalog, so the fan-out is a `for` loop rather than a merge.
 
 ## What the model is asked for
 
@@ -91,12 +131,3 @@ Everything under [Checking catalogs](checking.md) runs against what the model wr
 - **Your glossary**, if you declared one — product names and terms of art are exactly what a model paraphrases, and a glossary violation fails rather than advises.
 
 Two more entry points into the same machinery: [`scan --template`](scanning.md) writes the same kind of template for user-visible strings that are in no catalog *yet*, so a model can localize a feature that was written in English; and [`xcloc check`](editing.md#localization-catalogs-xcloc) applies all of it to an `.xcloc` or `.xliff` bundle before you import it, whether a vendor or an agent produced it.
-
-## Handing it to an agent directly
-
-The script above is the batch shape. When the model is already working in the project — Claude Code, Cursor, an SDK agent — two other pieces matter more:
-
-- **The [MCP server](agents.md#mcp-server)** exposes `check`, `scan`, `lookup` and the writing operations as separate, individually-permissioned tools, so an agent can be given the reading tools freely and asked before it writes.
-- **The [`PostToolUse` hook](agents.md#editor-and-commit-hooks)** is the interesting one. When an agent writes a Swift file it hears, immediately, that the string it just typed reaches no catalog; when it writes a catalog, that it broke a format specifier or gave one English string a second translation. Exit 2 hands the message back to the model, so it fixes what it wrote in the same turn instead of at review time, or never.
-
-Together those close the other half of the loop: `translate.sh` fills in what is missing, and the hook stops the agent adding more.

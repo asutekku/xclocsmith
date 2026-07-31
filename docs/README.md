@@ -2,7 +2,7 @@
 
 The [top-level README](../README.md) is the landing page; the full reference lives here, one topic per file.
 
-- [Translating with a model](translating.md) — the `check --out` → model → `add` → `check` loop, the template format, `Examples/translate.sh`, and what the verify step catches.
+- [Translating with a model](translating.md) — asking an agent to do it, the `check --out` → model → `add` → `check` loop, the template format, and what the verify step catches.
 - [Checking catalogs](checking.md) — what `check` fails on and what it only advises, the argument-order checks, and `diff` for translations stranded by a source-string change.
 - [Scanning your source](scanning.md) — how `scan` finds user-visible strings, what it recognizes, bypasses, and unreferenced keys.
 - [The project around the catalogs](project-checks.md) — unlocalized Info.plist strings and catalogs shipping fewer languages than their neighbours.
