@@ -5,6 +5,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/asutekku/xclocsmith/actions/workflows/ci.yml"><img src="https://github.com/asutekku/xclocsmith/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://swift.org"><img src="https://img.shields.io/badge/Swift-5.9%2B-orange.svg" alt="Swift 5.9+"></a>
   <a href="https://developer.apple.com/macos/"><img src="https://img.shields.io/badge/Platform-macOS%2013%2B-lightgrey.svg" alt="Platform macOS 13+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/Licence-MIT-blue.svg" alt="Licence MIT"></a>
@@ -202,6 +203,8 @@ Exit codes: `0` clean, `1` findings, `2` usage or I/O error. Every reporting com
 - **`.strings` / `.stringsdict` migration** — Xcode's migrator owns it. Read as reference, never rewritten.
 - **Compiling catalogs or generating symbols** — that's `xcstringstool`. This validates *against* the symbol rules.
 - **Storyboard extraction**, and **translation quality** — not a linter's job.
+
+One gap that is *not* deliberate: `scan` reads Swift only. On an Objective-C project `check` is fully meaningful and `scan` finds nothing — Nimble Commander's zero unlocalized strings in the [results table](docs/results.md) is that, not a clean bill of health.
 
 ## Contributing
 
