@@ -231,6 +231,7 @@ public struct Configuration {
         if let values = fields["localizableCalls"]?.stringList { configuration.localizableCalls.formUnion(values) }
         if let values = fields["localizableModifiers"]?.stringList { configuration.localizableModifiers.formUnion(values) }
         if let values = fields["localizableParams"]?.stringList { configuration.localizableParams.formUnion(values) }
+        if let values = fields["localizedAccessors"]?.stringList { configuration.localizedAccessors.formUnion(values) }
         if let values = fields["skipParams"]?.stringList { configuration.skipParams.formUnion(values) }
         if let values = fields["skipCalls"]?.stringList { configuration.skipCalls.formUnion(values) }
         if let values = fields["referenceExtensions"]?.stringList { configuration.referenceExtensions = Set(values) }

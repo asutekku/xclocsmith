@@ -28,6 +28,8 @@
 | `inferred` | Written by `init` when a target was guessed from the directory layout. While present, a key found in another target's catalog for the same table counts. Delete it once the sources really are that target's. |
 | `languages` | Languages to check, even if the catalog has no entries for one yet. |
 | `excludePaths` | Glob patterns against repo-relative paths. |
+| `exclude`, `excludeAlso` | Directory names never walked into. `exclude` replaces the built-in list (`.build`, `Pods`, `Carthage`, …); `excludeAlso` adds to it, which is almost always the one you want. |
+| `referenceExtensions` | File types searched when deciding whether a key is still referenced — beyond Swift. Defaults to plists, `.strings`, storyboards, XIBs, Objective-C, JSON and YAML. |
 | `ignoreStrings` | Literal values `scan` should never report. |
 | `ignoreSimilar` | Acknowledged near-duplicate pairs, and duplicate source strings you have decided to keep. |
 | `glossary` | Terms whose translation is fixed. `"*"` applies to every language; a named language overrides it, and a regional code inherits its base (`pt-BR` follows `pt` unless it says otherwise). |
