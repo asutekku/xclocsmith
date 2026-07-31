@@ -48,16 +48,22 @@ It does Xcode localization and nothing else. No dependencies — `swift build` i
 
 ## Installation
 
-Requires macOS 13+ and a Swift 5.9 toolchain — Xcode 15 or newer, the same requirement as `.xcstrings` itself.
-
 ```bash
-git clone https://github.com/akko/xclocsmith
-cd xclocsmith
-swift build -c release
-cp .build/release/xclocsmith /usr/local/bin/
+brew install asutekku/tap/xclocsmith
 ```
 
-Or run it from a checkout without installing: `swift run -c release xclocsmith check`.
+A universal binary, so no Swift toolchain is involved — which matters most on a CI runner, where installing one costs more than the check does. macOS 13+; `.xcstrings` itself needs Xcode 15 or newer.
+
+Or take the same tarball by hand from [the latest release](https://github.com/asutekku/xclocsmith/releases/latest), or build it:
+
+```bash
+git clone https://github.com/asutekku/xclocsmith
+cd xclocsmith
+swift build -c release
+cp .build/release/xclocsmith .build/release/xclocsmith-mcp /usr/local/bin/
+```
+
+Building needs Swift 5.9 — Xcode 15 or newer. Or run it from a checkout without installing: `swift run -c release xclocsmith check`.
 
 ## Getting started
 
@@ -99,6 +105,37 @@ xclocsmith check --lang ru                   # exit 0 only if it is actually rig
 ```
 
 The template, what the verify step catches, and the agent-side pieces — the MCP server and the Claude Code hook — are in [docs/translating.md](docs/translating.md) and [docs/agents.md](docs/agents.md).
+
+## In CI
+
+Copy this in whole. It annotates the pull request diff and files everything else as code-scanning alerts, on the line each key is declared on.
+
+```yaml
+name: Localization
+on: [push, pull_request]
+
+jobs:
+  xclocsmith:
+    runs-on: macos-15
+    permissions:
+      contents: read
+      security-events: write        # required by upload-sarif
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install asutekku/tap/xclocsmith
+
+      - run: xclocsmith check --format github
+      - run: xclocsmith scan --format github
+
+      - run: xclocsmith check --format sarif > localization.sarif
+        if: always()
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()                # the steps above exit 1 on findings
+        with:
+          sarif_file: localization.sarif
+```
+
+Failures are SARIF `error` and advisories `warning`, matching the exit code. GitHub only renders ten annotations of each level per step, so on a catalog with a backlog either lean on the SARIF upload, which has no such cap, or take a [baseline](docs/ci.md#adopting-it-on-a-project-that-already-ships) and let it fail only on what you add next. Both output formats, the annotation caps and baselines are in [docs/ci.md](docs/ci.md).
 
 ## Results on real projects
 

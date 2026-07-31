@@ -159,7 +159,7 @@ public struct MachineRenderer {
                 "tool": .object(["driver": .object([
                     "name": .string("xclocsmith"),
                     "version": .string(toolVersion),
-                    "informationUri": .string("https://github.com/akko/xclocsmith"),
+                    "informationUri": .string("https://github.com/asutekku/xclocsmith"),
                     "rules": .array(rules),
                 ])]),
                 "results": .array(results),

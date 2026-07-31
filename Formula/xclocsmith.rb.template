@@ -1,0 +1,49 @@
+# Rendered by .github/workflows/release.yml, which fills in the version and the
+# checksum and attaches the result to the release. Copy that file into the tap
+# repository as Formula/xclocsmith.rb — this template is not itself installable.
+class Xclocsmith < Formula
+  desc "Linter and editor for Xcode String Catalogs"
+  homepage "https://github.com/asutekku/xclocsmith"
+  url "https://github.com/asutekku/xclocsmith/releases/download/v__VERSION__/xclocsmith-__VERSION__-macos-universal.tar.gz"
+  sha256 "__SHA256__"
+  version "__VERSION__"
+  license "MIT"
+
+  # The release ships one universal binary, so there is no per-architecture
+  # bottle to pick between. String Catalogs are macOS-only.
+  depends_on :macos
+  depends_on macos: :ventura
+
+  def install
+    bin.install "xclocsmith"
+    bin.install "xclocsmith-mcp"
+  end
+
+  test do
+    assert_equal version.to_s, shell_output("#{bin}/xclocsmith --version").strip
+
+    (testpath/"App").mkpath
+    (testpath/"App/Localizable.xcstrings").write <<~JSON
+      {
+        "sourceLanguage" : "en",
+        "strings" : {
+          "Save" : {
+            "localizations" : {
+              "de" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Sichern"
+                }
+              }
+            }
+          }
+        },
+        "version" : "1.0"
+      }
+    JSON
+
+    # Exit 0 on a clean catalog is the whole contract; anything else means the
+    # binary did not survive the trip.
+    system bin/"xclocsmith", "check", "--no-config", testpath/"App/Localizable.xcstrings"
+  end
+end

@@ -1,0 +1,105 @@
+name: Release
+
+# Tag a release and this publishes a universal macOS binary, so installing the
+# tool does not require a matching Swift toolchain:
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# The job refuses to publish if the tag and the version the binary reports
+# disagree — a release whose `--version` says something else is worse than no
+# release, because the SARIF it writes carries that number into other people's
+# code-scanning history.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (dry run — builds and packages, publishes nothing)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Universal macOS binary
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          ref="${{ github.event.inputs.tag || github.ref_name }}"
+          version="${ref#v}"
+          declared=$(sed -n 's/^let toolVersion = "\(.*\)"$/\1/p' Sources/xclocsmith/Registry.swift)
+          if [ "$version" != "$declared" ]; then
+            echo "::error::tag $ref implies version $version, but Registry.swift declares $declared"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "name=xclocsmith-$version-macos-universal" >> "$GITHUB_OUTPUT"
+
+      - name: Test
+        run: swift test
+
+      - name: Build universal
+        run: swift build -c release --arch arm64 --arch x86_64
+
+      - name: Package
+        id: package
+        run: |
+          products=.build/apple/Products/Release
+          lipo -info "$products/xclocsmith" "$products/xclocsmith-mcp"
+          staging=$(mktemp -d)
+          cp "$products/xclocsmith" "$products/xclocsmith-mcp" LICENSE README.md "$staging/"
+          tarball="${{ steps.version.outputs.name }}.tar.gz"
+          tar -czf "$tarball" -C "$staging" .
+          echo "sha256=$(shasum -a 256 "$tarball" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+
+      - name: Check the binary it is about to publish
+        run: |
+          tar -xzf "${{ steps.package.outputs.tarball }}" -C "$RUNNER_TEMP"
+          reported=$("$RUNNER_TEMP/xclocsmith" --version)
+          [ "$reported" = "${{ steps.version.outputs.version }}" ] \
+            || { echo "::error::packaged binary reports $reported"; exit 1; }
+          "$RUNNER_TEMP/xclocsmith" check --config Examples/SampleApp/.xclocsmith.json
+
+      # Written here rather than kept in the repo, because the checksum only
+      # exists once the tarball does. Copy it into the tap.
+      - name: Render the Homebrew formula
+        run: |
+          sed -e "s|__VERSION__|${{ steps.version.outputs.version }}|g" \
+              -e "s|__SHA256__|${{ steps.package.outputs.sha256 }}|g" \
+              Formula/xclocsmith.rb.template > xclocsmith.rb
+          cat xclocsmith.rb
+
+      - name: Publish
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            "${{ steps.package.outputs.tarball }}" xclocsmith.rb \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            --notes "
+
+          **Universal macOS binary** — no Swift toolchain needed.
+
+          \`\`\`
+          sha256  ${{ steps.package.outputs.sha256 }}
+          \`\`\`
+
+          \`xclocsmith.rb\` below is the matching Homebrew formula; copy it into
+          the tap to publish this version."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.version.outputs.name }}
+          path: |
+            ${{ steps.package.outputs.tarball }}
+            xclocsmith.rb

@@ -1,11 +1,17 @@
 # Continuous integration
 
-String Catalogs need a Swift toolchain, so this wants a macOS runner.
+String Catalogs are macOS-only, so this wants a macOS runner. The copy-paste workflow is in [the README](../README.md#in-ci); it installs the released universal binary, which keeps a Swift toolchain out of the job entirely:
+
+```yaml
+      - run: brew install asutekku/tap/xclocsmith
+```
+
+If the tool is vendored into the repository instead, build it in the job and call it by path:
 
 ```yaml
 jobs:
   localization:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - run: swift build -c release --package-path Tools/xclocsmith
@@ -82,7 +88,7 @@ The whole document, from the same two findings — this is the entire output, no
       ],
       "tool": {
         "driver": {
-          "informationUri": "https://github.com/akko/xclocsmith",
+          "informationUri": "https://github.com/asutekku/xclocsmith",
           "name": "xclocsmith",
           "rules": [
             {
