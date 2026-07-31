@@ -69,16 +69,15 @@ Both `check` and `scan` exit `1` on findings and write nothing. Without a config
 
 ## What it finds
 
-- **Broken format strings** — a translation that dropped, added or retyped a specifier.
-- **Swapped arguments** — a translation that dropped the source's `%1$@` numbering, so its values now bind in written order. Never crashes. Always wrong.
-- **Missing plural forms** — the categories *that* language requires, not the ones English has.
-- **One English, two translations** — the same source string translated two different ways.
-- **Placeholder translations** — `"N/A"`, `"-"`, `"TODO"` sitting in the catalog marked `translated`.
-- **Strings that reach no catalog** — resolving `Text`, `LocalizedStringKey`, `String(localized:)` and your own wrappers.
-- **Problems around the catalogs** — an unlocalized `Info.plist` prompt, or one bundle shipping fewer languages than its neighbour.
-- **Keys that are English sentences** — reword one and every translation under it is orphaned, silently.
-
-Details: [checking](docs/checking.md) · [scanning](docs/scanning.md) · [project checks](docs/project-checks.md)
+- [**Broken format strings**](docs/checking.md) — a `%@` dropped, added or retyped.
+- [**Swapped arguments**](docs/checking.md#argument-order) — `%1$@` numbering lost. Never crashes, always wrong.
+- [**Missing plural forms**](docs/checking.md) — the categories *that* language needs.
+- [**One English, two translations**](docs/checking.md) — drifted apart, invisible in Xcode.
+- [**Placeholder translations**](docs/checking.md) — `"N/A"` and `"-"`, marked `translated`.
+- [**Strings no catalog knows**](docs/scanning.md) — `Text`, `String(localized:)`, your own wrappers.
+- [**Gaps around the catalogs**](docs/project-checks.md) — an `Info.plist` prompt, a widget left in English.
+- [**Keys that are English sentences**](docs/checking.md#keys-that-are-sentences) — reword one, orphan every translation.
+- [**Stranded translations**](docs/checking.md#reviewing-a-change-diff) — `diff` against a git ref, after a source edit.
 
 ## Translating with a model
 
