@@ -188,7 +188,7 @@ Nine open-source apps, `init && check && scan` with no hand-written config — 8
 
 ## Contributing
 
-`swift test` runs everything — 296 tests. The suite is the specification for what counts as a user-visible string: `ClassifierTests` is a table of Swift snippets and the keys Xcode would extract from them, and `RecallTests` holds the idioms real projects use. A change to detection behaviour belongs there first.
+`swift test` runs everything — 302 tests. The suite is the specification for what counts as a user-visible string: `ClassifierTests` is a table of Swift snippets and the keys Xcode would extract from them, and `RecallTests` holds the idioms real projects use. A change to detection behaviour belongs there first.
 
 ## Licence
 
