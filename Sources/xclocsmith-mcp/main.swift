@@ -23,7 +23,10 @@ enum MCP {
 
         Start with check_catalogs (translation coverage) or scan_sources (strings in \
         code that no catalog knows about). To fix missing translations, call \
-        add_translations with an xclocsmith/v1 payload. Before importing a bundle from \
+        add_translations with an xclocsmith/v1 payload, then call check_catalogs again \
+        for the languages you wrote: a translation that dropped a format specifier or \
+        answered a plural with one string is not visible in the text itself, and \
+        nothing else in the toolchain reports it. Before importing a bundle from \
         a translator, call xcloc_check — it compares format specifiers, which Xcode's \
         own import does not.
 

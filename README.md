@@ -1,6 +1,7 @@
 # xclocSmith
 
-**A linter and editor for Xcode String Catalogs.**
+**A linter and editor for Xcode String Catalogs — and the verification loop
+that lets a model translate them.**
 
 [![Swift 5.9+](https://img.shields.io/badge/Swift-5.9%2B-orange.svg)](https://swift.org)
 [![Platform macOS 13+](https://img.shields.io/badge/Platform-macOS%2013%2B-lightgrey.svg)](https://developer.apple.com/macos/)
@@ -8,9 +9,18 @@
 
 Xcode will happily ship a Polish translation that dropped its `%@`, a Russian
 plural missing `few` and `many`, and a `Text("Get Pro")` that no catalog has ever
-heard of. `xclocsmith` finds all three in about a second, edits `.xcstrings`
-files without destroying what Xcode put there, and closes the loop: it hands a
-model exactly what is missing and then checks the answer.
+heard of. `xclocsmith` finds all three in about a second, and edits `.xcstrings`
+files without destroying what Xcode put there.
+
+**It is also built to be driven by a model, not only read by a human.**
+`check --out` writes exactly what is missing, in the shape the *target*
+language needs; `add` merges the reply without flattening a plural; and then
+`check` runs again, so a machine translation only lands if it survives the same
+linter your CI runs. [One script](#translating-with-a-model) drives that whole
+loop and re-prompts on failure, an [MCP server](#mcp-server) hands the same
+operations to an agent as separate read and write tools, and a
+[hook](#editor-and-commit-hooks) tells an agent that the file it just wrote
+broke something, while it is still holding the file.
 
 It does Xcode localization and nothing else. No dependencies — `swift build` is
 the whole install.
@@ -56,6 +66,8 @@ cd path/to/your/app
 xclocsmith init      # writes .xclocsmith.json describing your project
 xclocsmith check     # translation coverage and catalog health
 xclocsmith scan      # strings in your code that no catalog knows about
+
+Examples/translate.sh ja de    # and then have a model fill in what is missing
 ```
 
 `init` is optional — without a config the project is discovered from its layout.
@@ -65,17 +77,79 @@ the scanner about your own view types.
 Both `check` and `scan` exit **1** when they find something, so they gate CI
 directly. Neither writes a file unless you ask it to.
 
-## Translate with an LLM, and verify the result
+## Translating with a model
 
-Untranslated keys go out as a fill-in template and come back as a patch. The
-point is the last step: **the tool checks what the model wrote.**
+A model can translate a string catalog. What it cannot do is tell you whether
+it succeeded — dropping a `%@`, answering a Russian plural with one string and
+inventing a second argument are all fluent, plausible output, and all three
+compile, pass review and ship. So the loop here is built around the step after
+the translation:
+
+```
+xclocsmith check --out   →  a template of exactly what is missing,
+                            in the shape this language needs
+        ↓
+     a model fills it in
+        ↓
+xclocsmith add           →  merged into the catalog, plurals intact,
+                            nothing else in the file touched
+        ↓
+xclocsmith check         →  exit 0, or the findings go back to the model
+```
+
+Every step speaks JSON (`--json` on everything but `init`) and every step is
+exit-coded, so nothing in the loop needs prose parsing and nothing needs a
+human to look at it.
+
+### One command
+
+[`Examples/translate.sh`](Examples/translate.sh) is that loop, in 133 lines of
+shell with the comments:
+
+```console
+$ Examples/translate.sh ja
+── ja ─────────────────────────────────────────────
+translating work.json
+App/Localizable.xcstrings [ja]: 1 translated
+ja: the linter rejected the translation, asking again
+    FAIL  format specifiers disagree with the source string (1):
+      - [ja] "You have %lld messages" has 0 format specifier(s), the source has 1
+          "You have %lld messages"  →  "メッセージ"
+App/Localizable.xcstrings [ja]: 1 updated
+ja: clean on the second attempt
+```
+
+The model dropped the count out of a string it translated perfectly well
+otherwise. Nothing in Xcode would have said so; the app crashes or silently
+loses the number, in Japanese only, months later. Here the finding goes back to
+the model with the payload it wrote, it fixes that one string, and the run
+re-verifies before it reports success. **A language still failing after the
+second attempt fails the run and is named**; that attempt is left in the
+working tree to look at, rather than reported as done.
+
+It takes any number of languages, and `TRANSLATOR` is any command that reads a
+template on stdin and writes a filled one on stdout — a model, a script, a
+translation API. The default is Claude Code in headless mode:
+
+```bash
+Examples/translate.sh ja de fr
+STATE=needs_review Examples/translate.sh ja      # queue it for a human reviewer
+TRANSLATOR="./deepl.sh" Examples/translate.sh ja
+```
+
+Or drive it yourself; there is nothing in the script but these three commands:
 
 ```bash
 xclocsmith check --lang ru --out work.json   # every missing Russian string
-#  … hand work.json to a model, or a translator …
-xclocsmith add work.json                     # merged, never flattened
+cat work.json | your-model | xclocsmith add -
 xclocsmith check --lang ru                   # exit 0 only if it is actually right
 ```
+
+`add` reads `-` for stdin, and `check --out` writes one template per catalog
+and language — a project with five catalogs gets five files named after them,
+so the fan-out is a `for` loop rather than a merge.
+
+### What the model is asked for
 
 The template asks for the shape the *target language* needs, because nobody
 should have to know that Russian takes four plural forms and Japanese one:
@@ -106,12 +180,51 @@ project that keys by identifier they are the difference between translating
 that are already their own English string stay in the short `"key": "TODO"`
 form.
 
-The verify step catches what models actually get wrong: a dropped `%@`, a
-Russian plural answered with one string. Both are silent in Xcode. `--json` on
-every step means the loop needs no prose parsing; `scan --out` writes the same
-kind of template for strings that are in no catalog yet; and `xcloc check`
-applies the same scrutiny to an `.xcloc` bundle a vendor or an agent hands
-back.
+### What the verify step catches
+
+Everything under [Checking catalogs](#checking-catalogs) runs against what the
+model wrote, but these are the ones machine translation actually trips on:
+
+- **A dropped or invented format specifier.** The crash, and the one that
+  survives review because the sentence reads fine.
+- **A plural answered with one string**, or with categories this language does
+  not use. `add` refuses to flatten a plural into a flat string at all unless
+  you pass `--flatten`.
+- **A placeholder left behind** — `"-"`, `"N/A"`, `"TBD"`. A model that ran out
+  of context mid-file leaves these, and they read as `translated` in Xcode. A
+  slot still holding the literal `"TODO"` never reaches the catalog at all:
+  `add` reports it skipped, so the key stays missing and stays in the next
+  template.
+- **The English handed back untouched**, reported as identical-to-source.
+- **The same source string translated two ways**, which is what happens when a
+  model does one catalog on Monday and its neighbour on Friday.
+- **Your glossary**, if you declared one — product names and terms of art are
+  exactly what a model paraphrases, and a glossary violation fails rather than
+  advises.
+
+Two more entry points into the same machinery: `scan --template` writes the
+same kind of template for user-visible strings that are in no catalog *yet*, so
+a model can localize a feature that was written in English; and `xcloc check`
+applies all of it to an `.xcloc` or `.xliff` bundle before you import it,
+whether a vendor or an agent produced it.
+
+### Handing it to an agent directly
+
+The script above is the batch shape. When the model is already working in the
+project — Claude Code, Cursor, an SDK agent — two other pieces matter more:
+
+- **The [MCP server](#mcp-server)** exposes `check`, `scan`, `lookup` and the
+  writing operations as separate, individually-permissioned tools, so an agent
+  can be given the reading tools freely and asked before it writes.
+- **The [`PostToolUse` hook](#editor-and-commit-hooks)** is the interesting
+  one. When an agent writes a Swift file it hears, immediately, that the string
+  it just typed reaches no catalog; when it writes a catalog, that it broke a
+  format specifier or gave one English string a second translation. Exit 2
+  hands the message back to the model, so it fixes what it wrote in the same
+  turn instead of at review time, or never.
+
+Together those close the other half of the loop: `translate.sh` fills in what
+is missing, and the hook stops the agent adding more.
 
 ## Results on real projects
 
@@ -528,14 +641,18 @@ Two ready hooks are in [`Examples/hooks/`](Examples/hooks):
 
 Neither hook asks about translation coverage: a string added in this edit has
 no Japanese yet and is not supposed to. That is what `check` across the project
-is for, at a moment when somebody means to translate.
+is for, at a moment when somebody means to translate — see
+[Translating with a model](#translating-with-a-model) for the other half, where
+an agent fills that Japanese in and has to prove it.
 
 ## MCP server
 
-`xclocsmith-mcp` speaks the Model Context Protocol over stdio. The reason to
-prefer it over shelling out is permission granularity: the reading tools and
-the writing tools are separate, annotated tools, so a host can grant one set
-and confirm the other.
+`xclocsmith-mcp` speaks the Model Context Protocol over stdio. It is how an
+agent runs the [translation loop](#translating-with-a-model) itself rather than
+being handed a template: find what is missing, write it, check its own work.
+The reason to prefer it over shelling out is permission granularity — the
+reading tools and the writing tools are separate, annotated tools, so a host
+can grant one set and confirm the other.
 
 ```json
 {
