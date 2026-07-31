@@ -84,7 +84,7 @@ final class ProjectCheckTests: XCTestCase {
     // MARK: - Language coverage
 
     /// iOS resolves a language per bundle, not per app. GoMap's GPX widget
-    /// carries ten fewer languages than the app around it, so those users get a
+    /// carries eleven fewer languages than the app around it, so those users get a
     /// translated app with an English widget.
     func testACatalogShippingFewerLanguagesIsReported() throws {
         let main = catalog("App/Localizable.xcstrings", languages: ["en", "de", "ja", "fr"])

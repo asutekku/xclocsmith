@@ -1,57 +1,20 @@
-# xclocSmith
+<h1 align="center">xclocSmith</h1>
 
-**A linter and editor for Xcode String Catalogs — and the verification loop
-that lets a model translate them.**
+<p align="center">
+  <b>A linter and editor for Xcode String Catalogs —<br>
+  and the verification loop that lets a model translate them.</b>
+</p>
 
-[![Swift 5.9+](https://img.shields.io/badge/Swift-5.9%2B-orange.svg)](https://swift.org)
-[![Platform macOS 13+](https://img.shields.io/badge/Platform-macOS%2013%2B-lightgrey.svg)](https://developer.apple.com/macos/)
-[![Licence MIT](https://img.shields.io/badge/Licence-MIT-blue.svg)](LICENSE)
+<p align="center">
+  <a href="https://swift.org"><img src="https://img.shields.io/badge/Swift-5.9%2B-orange.svg" alt="Swift 5.9+"></a>
+  <a href="https://developer.apple.com/macos/"><img src="https://img.shields.io/badge/Platform-macOS%2013%2B-lightgrey.svg" alt="Platform macOS 13+"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/Licence-MIT-blue.svg" alt="Licence MIT"></a>
+</p>
 
 Xcode will happily ship a Polish translation that dropped its `%@`, a Russian
 plural missing `few` and `many`, and a `Text("Get Pro")` that no catalog has ever
 heard of. `xclocsmith` finds all three in about a second, and edits `.xcstrings`
 files without destroying what Xcode put there.
-
-- **[Translate with a model, and prove it worked.](#translating-with-a-model)**
-  `check --out` writes exactly what is missing in the shape the *target*
-  language needs, `add` merges the reply without flattening a plural, and
-  `check` runs again — so a machine translation only lands if it survives the
-  linter. [One script](#one-command) drives the whole loop across every
-  language and re-prompts the model with the findings when it fails.
-- **[Give an agent the tools instead.](#handing-it-to-an-agent-directly)** An
-  [MCP server](#mcp-server) exposes reading and writing as separately
-  permissioned tools, and a [`PostToolUse` hook](#editor-and-commit-hooks)
-  tells an agent it just wrote a string no catalog knows about, or broke a
-  format specifier — while it is still holding the file, not at review time.
-- **[Check catalogs](#checking-catalogs)** for the defects Xcode compiles
-  anyway: format specifiers that disagree with the source, plurals missing the
-  categories that language actually requires, keys differing only in case,
-  placeholders standing in for translations, glossary violations, and one
-  English string quietly translated two different ways. Including
-  [the one that never crashes](#argument-order) — a translation that dropped
-  the source's `%1$@` numbering and now prints two values the wrong way round.
-- **[Scan your source](#scanning-your-source)** for user-visible strings that
-  reach no catalog — resolving `LocalizedStringKey`, `String(localized:)`,
-  `Text`, your own wrapper functions and the table each one lands in.
-- **[Check the project around the catalogs](#the-project-around-the-catalogs)**
-  — an untranslated `Info.plist` permission prompt, a development region that
-  is not the source language, one catalog shipping fewer languages than its
-  neighbours. iOS resolves a language per bundle, and each file looks complete
-  on its own.
-- **[Edit catalogs](#editing-catalogs)** — `add`, `set`, `prune` — writing
-  Xcode's exact format back, so the diff is your change and nothing else.
-  [Validate an `.xcloc` or `.xliff`](#localization-catalogs-xcloc) before
-  importing it — it compares format specifiers against the source, which
-  Xcode's own import does not.
-- **[Review a change](#reviewing-a-change)** — `diff` finds translations
-  stranded by an edit to the English, against a git ref or between two files.
-- **[Gate CI](#continuous-integration)** — SARIF and GitHub annotations on the
-  line the key is declared on, stable rule ids, and
-  [baselines](#adopting-it-on-a-project-that-already-ships) so a project with
-  three hundred existing findings can switch the check on today.
-
-It does Xcode localization and nothing else. No dependencies — `swift build` is
-the whole install.
 
 ```console
 $ xclocsmith check
@@ -72,6 +35,52 @@ App/Localizable.xcstrings  (Localizable, source en)
 
 4 failing finding(s), 1 advisory. Exit 1.
 ```
+
+It does Xcode localization and nothing else. No dependencies — `swift build` is
+the whole install.
+
+## Features
+
+- **[Translate with a model, and prove it worked.](docs/translating.md)**
+  `check --out` writes exactly what is missing in the shape the *target*
+  language needs, `add` merges the reply without flattening a plural, and
+  `check` runs again — so a machine translation only lands if it survives the
+  linter. [One script](Examples/translate.sh) drives the whole loop across
+  every language and re-prompts the model with the findings when it fails.
+- **[Give an agent the tools instead.](docs/agents.md)** An
+  [MCP server](docs/agents.md#mcp-server) exposes reading and writing as
+  separately permissioned tools, and a
+  [`PostToolUse` hook](docs/agents.md#editor-and-commit-hooks) tells an agent
+  it just wrote a string no catalog knows about, or broke a format specifier —
+  while it is still holding the file, not at review time.
+- **[Check catalogs](docs/checking.md)** for the defects Xcode compiles
+  anyway: format specifiers that disagree with the source, plurals missing the
+  categories that language actually requires, keys differing only in case,
+  placeholders standing in for translations, glossary violations, and one
+  English string quietly translated two different ways. Including
+  [the one that never crashes](docs/checking.md#argument-order) — a
+  translation that dropped the source's `%1$@` numbering and now prints two
+  values the wrong way round.
+- **[Scan your source](docs/scanning.md)** for user-visible strings that
+  reach no catalog — resolving `LocalizedStringKey`, `String(localized:)`,
+  `Text`, your own wrapper functions and the table each one lands in.
+- **[Check the project around the catalogs](docs/project-checks.md)** — an
+  untranslated `Info.plist` permission prompt, a development region that is
+  not the source language, one catalog shipping fewer languages than its
+  neighbours. iOS resolves a language per bundle, and each file looks complete
+  on its own.
+- **[Edit catalogs](docs/editing.md)** — `add`, `set`, `prune` — writing
+  Xcode's exact format back, so the diff is your change and nothing else.
+  [Validate an `.xcloc` or `.xliff`](docs/editing.md#localization-catalogs-xcloc)
+  before importing it — it compares format specifiers against the source,
+  which Xcode's own import does not.
+- **[Review a change](docs/checking.md#reviewing-a-change-diff)** — `diff`
+  finds translations stranded by an edit to the English, against a git ref or
+  between two files.
+- **[Gate CI](docs/ci.md)** — SARIF and GitHub annotations on the line the key
+  is declared on, stable rule ids, and
+  [baselines](docs/ci.md#adopting-it-on-a-project-that-already-ships) so a
+  project with three hundred existing findings can switch the check on today.
 
 ## Installation
 
@@ -100,7 +109,8 @@ Examples/translate.sh ja de    # and then have a model fill in what is missing
 
 `init` is optional — without a config the project is discovered from its layout.
 Write one when you want to name your targets, pin the language list, or teach
-the scanner about your own view types.
+the scanner about your own view types
+([configuration reference](docs/configuration.md)).
 
 Both `check` and `scan` exit **1** when they find something, so they gate CI
 directly. Neither writes a file unless you ask it to.
@@ -108,10 +118,9 @@ directly. Neither writes a file unless you ask it to.
 ## Translating with a model
 
 A model can translate a string catalog. What it cannot do is tell you whether
-it succeeded — dropping a `%@`, answering a Russian plural with one string and
-inventing a second argument are all fluent, plausible output, and all three
-compile, pass review and ship. So the loop here is built around the step after
-the translation:
+it succeeded — a dropped `%@` or a Russian plural answered with one string is
+fluent, plausible output, and it compiles, passes review and ships. So the
+loop here is built around the step after the translation:
 
 ```
 xclocsmith check --out   →  a template of exactly what is missing,
@@ -125,47 +134,11 @@ xclocsmith add           →  merged into the catalog, plurals intact,
 xclocsmith check         →  exit 0, or the findings go back to the model
 ```
 
-Every step speaks JSON (`--json` on everything but `init`) and every step is
-exit-coded, so nothing in the loop needs prose parsing and nothing needs a
-human to look at it.
-
-### One command
-
-[`Examples/translate.sh`](Examples/translate.sh) is that loop, in 133 lines of
-shell with the comments:
-
-```console
-$ Examples/translate.sh ja
-── ja ─────────────────────────────────────────────
-translating work.json
-App/Localizable.xcstrings [ja]: 1 translated
-ja: the linter rejected the translation, asking again
-    FAIL  format specifiers disagree with the source string (1):
-      - [ja] "You have %lld messages" has 0 format specifier(s), the source has 1
-          "You have %lld messages"  →  "メッセージ"
-App/Localizable.xcstrings [ja]: 1 updated
-ja: clean on the second attempt
-```
-
-The model dropped the count out of a string it translated perfectly well
-otherwise. Nothing in Xcode would have said so; the app crashes or silently
-loses the number, in Japanese only, months later. Here the finding goes back to
-the model with the payload it wrote, it fixes that one string, and the run
-re-verifies before it reports success. **A language still failing after the
-second attempt fails the run and is named**; that attempt is left in the
-working tree to look at, rather than reported as done.
-
-It takes any number of languages, and `TRANSLATOR` is any command that reads a
-template on stdin and writes a filled one on stdout — a model, a script, a
-translation API. The default is Claude Code in headless mode:
-
-```bash
-Examples/translate.sh ja de fr
-STATE=needs_review Examples/translate.sh ja      # queue it for a human reviewer
-TRANSLATOR="./deepl.sh" Examples/translate.sh ja
-```
-
-Or drive it yourself; there is nothing in the script but these three commands:
+Every step speaks JSON and every step is exit-coded, so nothing in the loop
+needs prose parsing. [`Examples/translate.sh`](Examples/translate.sh) is that
+loop in 133 lines of shell: it re-prompts the model with the linter's findings
+when a language fails, and a language still failing after the second attempt
+fails the run and is named. Or drive it yourself:
 
 ```bash
 xclocsmith check --lang ru --out work.json   # every missing Russian string
@@ -173,153 +146,36 @@ cat work.json | your-model | xclocsmith add -
 xclocsmith check --lang ru                   # exit 0 only if it is actually right
 ```
 
-`add` reads `-` for stdin, and `check --out` writes one template per catalog
-and language — a project with five catalogs gets five files named after them,
-so the fan-out is a `for` loop rather than a merge.
-
-### What the model is asked for
-
-The template asks for the shape the *target language* needs, because nobody
-should have to know that Russian takes four plural forms and Japanese one:
-
-```json
-{
-  "format": "xclocsmith/v1",
-  "catalog": "App/Localizable.xcstrings",
-  "language": "ru",
-  "strings": {
-    "Delete %@": "TODO",
-    "%lld items": {
-      "source": "%lld items",
-      "plural": { "one": "TODO", "few": "TODO", "many": "TODO", "other": "TODO" }
-    },
-    "notifications.label.favorite": {
-      "source": "starred",
-      "comment": "Tab label under the icon",
-      "value": "TODO"
-    }
-  }
-}
-```
-
-`source` and `comment` are read-only context and `add` ignores them. On a
-project that keys by identifier they are the difference between translating
-`notifications.label.favorite` and translating something nobody can see. Keys
-that are already their own English string stay in the short `"key": "TODO"`
-form.
-
-### What the verify step catches
-
-Everything under [Checking catalogs](#checking-catalogs) runs against what the
-model wrote, but these are the ones machine translation actually trips on:
-
-- **A dropped or invented format specifier.** The crash, and the one that
-  survives review because the sentence reads fine.
-- **A plural answered with one string**, or with categories this language does
-  not use. `add` refuses to flatten a plural into a flat string at all unless
-  you pass `--flatten`.
-- **A placeholder left behind** — `"-"`, `"N/A"`, `"TBD"`. A model that ran out
-  of context mid-file leaves these, and they read as `translated` in Xcode. A
-  slot still holding the literal `"TODO"` never reaches the catalog at all:
-  `add` reports it skipped, so the key stays missing and stays in the next
-  template.
-- **The English handed back untouched**, reported as identical-to-source.
-- **The same source string translated two ways**, which is what happens when a
-  model does one catalog on Monday and its neighbour on Friday.
-- **Your glossary**, if you declared one — product names and terms of art are
-  exactly what a model paraphrases, and a glossary violation fails rather than
-  advises.
-
-Two more entry points into the same machinery: `scan --template` writes the
-same kind of template for user-visible strings that are in no catalog *yet*, so
-a model can localize a feature that was written in English; and `xcloc check`
-applies all of it to an `.xcloc` or `.xliff` bundle before you import it,
-whether a vendor or an agent produced it.
-
-### Handing it to an agent directly
-
-The script above is the batch shape. When the model is already working in the
-project — Claude Code, Cursor, an SDK agent — two other pieces matter more:
-
-- **The [MCP server](#mcp-server)** exposes `check`, `scan`, `lookup` and the
-  writing operations as separate, individually-permissioned tools, so an agent
-  can be given the reading tools freely and asked before it writes.
-- **The [`PostToolUse` hook](#editor-and-commit-hooks)** is the interesting
-  one. When an agent writes a Swift file it hears, immediately, that the string
-  it just typed reaches no catalog; when it writes a catalog, that it broke a
-  format specifier or gave one English string a second translation. Exit 2
-  hands the message back to the model, so it fixes what it wrote in the same
-  turn instead of at review time, or never.
-
-Together those close the other half of the loop: `translate.sh` fills in what
-is missing, and the hook stops the agent adding more.
+The template, what the verify step catches, and the agent-side pieces — the
+MCP server and the Claude Code hook — are in
+[docs/translating.md](docs/translating.md) and [docs/agents.md](docs/agents.md).
 
 ## Results on real projects
 
 Nine open-source apps, `init && check && scan` with no hand-written config —
-8,077 keys, 70 locales, 6,373 Swift files.
+8,077 keys, 70 locales, 6,373 Swift files. Among the findings, all shipping
+today:
 
-| Project | Catalogs · keys · locales | Broken format strings | Missing plural forms | Translated two ways | Hygiene | Project | Duplicate strings ‡ | Unlocalized in code |
-|---|---|---:|---:|---:|---:|---:|---|---:|
-| [Whisky](https://github.com/Whisky-App/Whisky) | 1 · 152 · 21 | 0 | 0 | **5** | **3** / 50 | 1 | 10 | 0 |
-| [Loop](https://github.com/MrKai77/Loop) | 1 · 404 · 13 | 0 | 0 | **3** | **100** / 230 | 1 | 9 (+3 case) | 0 |
-| [NetNewsWire](https://github.com/Ranchero-Software/NetNewsWire) | 9 · 472 · 1 | 0 | 0 | 0 | 0 | 1 | 0 (+4 case) | 85 |
-| [IceCubesApp](https://github.com/Dimillian/IceCubesApp) | 1 · 733 · 18 | **2** | **89** | **62** | **12** / 175 | 1 | 95 | 47 |
-| [Mastodon for iOS](https://github.com/mastodon/mastodon-ios) | 9 · 980 · 53 | **9** | **53** | 0 | **68** / 273 | 3 | 122 | 27 |
-| [HSTracker](https://github.com/HearthSim/HSTracker) | 23 · 777 · 13 | 0 | 0 | **5** | **2** / 45 | 2 | 64 (+1 case) | 10 |
-| [Nimble Commander](https://github.com/mikekazakov/nimble-commander) | 54 · 1322 · 1 | 0 | **1** | **5** | **1** / 66 | 0 | 332 (+2 case) | 0 † |
-| [GoMap](https://github.com/bryceco/GoMap) | 15 · 761 · 33 | **4** | **150** | **28** | **14** / 80 | 9 | 79 (+3 case) | 10 |
-| [DuckDuckGo](https://github.com/duckduckgo/apple-browsers) | 19 · 2476 · 26 | **20** | **48** | **25** | **82** / 172 | 1 | 352 | 166 |
-
-**Bold** ships as a user-visible bug; the hygiene column reads *failing / total*.
-Mastodon's Albanian `"Option %ld"` is translated `"%ld nga %ld"`, which reads a
-second argument the call never supplies. GoMap's Arabic translator pasted the
-*description* of a string into two of its plural forms, and the count went with
-it. Whisky renders one of its two "Remove" buttons as German `"Löschen"` —
-delete — and the other as `"Entfernen"`.
-
-The "translated two ways" column is the one nothing else finds. Two keys with
-the same English are invisible in Xcode when a project keys by identifier, and
-their translations drift apart. IceCubesApp has 62 such groups, including a key
-whose English was changed to `"%lld posts"` and whose Belarusian still reads
-`"%lld people talking"` — state `translated`, and detectable only beside its
-twin. Mastodon's 122 duplicates all agree, because its translation memory
-propagates them.
-
-The failing half of the hygiene column is mostly one thing: a placeholder where
-a translation should be. Whisky ships `config.notAvailable` as the literal
-string "N/A" in Czech, French and Romanian; Loop's Arabic and Flemish write "-"
-for sixty strings nobody has reached yet. Both read as translated in Xcode. The
-rest of the column is punctuation, whitespace and Unicode — advisory, because it
-is loud on any catalog with history behind it.
-
-The project column is the smallest and the hardest to get any other way, because
-it is about the files *around* the catalogs. DuckDuckGo declares
-`NSLocalNetworkUsageDescription` in its Info.plist and localizes it nowhere, so
-that permission prompt is English for every non-English user. GoMap's GPX widget
-carries eleven fewer languages than the app beside it — iOS resolves a language
-per bundle, so those users get a translated app and an English widget, and each
-catalog looks complete on its own.
-
-Whisky and Loop genuinely have no unlocalized strings, and the tool finds none
-across their 213 files.
+- Mastodon's Albanian translates `"Option %ld"` as `"%ld nga %ld"`, which
+  reads a second argument the call never supplies.
+- Mastodon's Kabyle dropped the `%1$@` numbering from
+  `"%1$@, attachment %2$d of %3$d"`, so its values bind in written order.
+- IceCubesApp changed a key's English to `"%lld posts"`; its Belarusian still
+  reads `"%lld people talking"`, state `translated`.
+- Whisky renders one of its two "Remove" buttons as German `"Löschen"` —
+  delete — and the other as `"Entfernen"`.
+- DuckDuckGo declares `NSLocalNetworkUsageDescription` in its Info.plist and
+  localizes it nowhere, so that permission prompt is English for every
+  non-English user.
+- GoMap's GPX widget ships eleven fewer languages than the app beside it, so
+  those users get a translated app and an English widget.
 
 `check` tops out at 3.3s and `scan` at 2.9s, both on DuckDuckGo's 19 catalogs
-and 3,196 Swift files; Mastodon's 53 locales take 1.8s to check, and every
-other run in the table finishes in under a second. `check` is the slower of the
-two on a project that size — the hygiene pass is thirteen comparisons per key
-per language, and DuckDuckGo is 2,476 keys across 26 locales.
-
-Reproduce it with [`Scripts/corpus.sh`](Scripts/corpus.sh), which clones the
-nine at the commits these numbers were measured against and prints the table.
-
-‡ Exact duplicate groups *plus* near-duplicate pairs, so it includes the
-"translated two ways" column rather than sitting beside it. For Nimble Commander
-it is 260 near-duplicates and 72 exact groups.
-
-† Nimble Commander is Objective-C++: 54 catalogs, three Swift files. `check` is
-fully meaningful there, `scan` is not — Objective-C sources are not scanned at
-all, which is the largest gap in this tool today.
+and 3,196 Swift files; Mastodon's 53 locales take 1.8s, and every other run in
+the table finishes in under a second. The full
+table, the analysis and the numbers per project are in
+[docs/results.md](docs/results.md); [`Scripts/corpus.sh`](Scripts/corpus.sh)
+reproduces them at the commits they were measured against.
 
 ## Commands
 
@@ -336,557 +192,31 @@ all, which is the largest gap in this tool today.
 | `set` | Sets one translation. | yes, `--dry-run` to preview |
 | `init` | Writes `.xclocsmith.json`. | yes |
 
-**Exit codes:** `0` clean, `1` findings, `2` usage or I/O error. An unknown
-`--lang` fails the run instead of checking nothing and reporting clean.
-`lookup` exits 1 when nothing matched; `prune` exits 2 when it refuses to act,
-because a refusal needs a decision, not a fix.
-
-Rules the CLI follows so automation cannot go wrong quietly: a flag a command
-does not take is an error, never a silent no-op — `<command> --help` lists
-exactly what is accepted — and so is a value flag whose next argument is
-another flag, because `scan --out --json` is a forgotten filename, not a
-request for a file called `--json`. Every command that reports findings takes
-`--json` (everything but `init`), rendered from the same report object as the
-text output so the two cannot drift; `failures` in the JSON equals the findings
-enumerated in it, so fixing everything in the payload reaches exit 0. `--` ends
-flag parsing, so a key can be any string: `xclocsmith set -- "--odd key" "値"`.
-
-## Checking catalogs
-
-```bash
-xclocsmith check
-xclocsmith check --lang ja,de       # only these languages
-xclocsmith check --strict           # advisories fail too
-xclocsmith check --out work.json    # write a fill-in template for what is missing
-```
-
-Coverage is reported per language per catalog, with the outstanding keys named
-rather than counted (lists truncate at 50). The counting follows Xcode's own
-semantics: a `stringUnit` in state `new` is untranslated, `needs_review` is
-reported separately, a `stale` key is on its way out and does not nag
-translators, and a declared language with no entries yet shows 0% instead of
-passing silently.
-
-What fails the run:
-
-- **Format specifiers that disagree with the source** — the classic
-  localization crash, which no build step checks. Positional reordering
-  (`%2$@ の %1$@`) is fine; substitutions (`%#@count@`) and plural variations
-  are expanded and checked through — a German `other` that dropped its `%lld`
-  is the single likeliest place for this bug to hide.
-- **A translation that threw away the argument positions the source gave it** —
-  see [argument order](#argument-order), the one that does not crash.
-- **Incomplete plurals against real CLDR categories.** One filled row is
-  complete for Japanese and three short for Russian; categories that only apply
-  to decimals or compact millions (Czech `many`, French `many`) are not
-  demanded. A flat translation of a pluralized key counts as incomplete too.
-- **Keys that differ only in case**, which break Xcode's symbol generation.
-- **Hygiene defects that lose text**: a "-" or "N/A" standing in for a
-  translation nobody wrote, invisible and bidi-control characters, broken
-  Markdown, mismatched line-break counts.
-- **Glossary violations**, if you declare terms — a glossary is a decision you
-  wrote down, so breaking it fails rather than advises.
-
-What is advisory: one source string translated more than one way — "Free" the
-price and "Free" the vacancy are one English string with two right answers, so
-record reviewed pairs in `ignoreSimilar` — plus near-duplicates compared on the
-*strings* rather than the keys, translations identical to the source, and the
-softer hygiene rules: punctuation compared by class (`。`, `؟` and Greek `;`
-satisfy their Latin equivalents), edge whitespace, doubled words (reduplicating
-languages like Vietnamese are exempt), and `...` where the typographic ellipsis
-belongs.
-
-### Argument order
-
-The bug in this family that does *not* crash, and so survives every review:
-two values printed in the wrong order.
-
-```console
-$ xclocsmith check --lang kab          # Mastodon for iOS, wrapped to fit here
-  FAIL  translation hygiene (2):
-    dropped-specifier-position (2) — argument positions the source gave and the translation dropped:
-      - [kab] "Common.Controls.Status.Media.AccessibilityLabel": the source numbers its
-        arguments (%1$@, %2$d, %3$d) and this translation does not, so its specifiers
-        bind in written order — if the sentence puts them the other way round, the
-        values are silently swapped
-      - [kab] "Scene.Register.Input.BirthDate.ExplanationMessage": …
-```
-
-`"%1$@, attachment %2$d of %3$d"` is `"%@, attachment %d of %d"` in Kabyle, and
-the birth-date message the same. Nothing else in the toolchain says a word
-about either.
-
-Two checks, at the two places the mistake can be made:
-
-- **`unordered-specifiers`, against the source** — a source string with two or
-  more bare `%@` cannot be reordered *at all*, so a language that puts the
-  object before the subject has no legal way to translate it. Advisory,
-  because the translations that exist are as right as they can be; the fix is
-  to number the source, and it costs nothing.
-- **`dropped-specifier-position`, against each translation** — the source
-  numbered its arguments and the translation did not. Same specifiers, same
-  types, same count, so the format check passes and Xcode compiles it, but the
-  bare specifiers now bind in written order and any reordering the sentence
-  performs swaps the values. **This one fails the run:** nobody types `%1$@` by
-  accident, so discarding it reverses a decision somebody made deliberately.
-
-A translator who *adds* positions to a source that lacked them has fixed the
-problem, not caused one, and is not reported. Neither is a translation that
-reorders through positions, which is what positions are for.
-
-## Scanning your source
-
-```bash
-xclocsmith scan
-xclocsmith scan --files Sources/View.swift # report on one file, read all of them
-```
-
-Strings your code shows but never localizes, found by tokenizing Swift — with
-escapes, raw strings, multi-line literals and interpolation — rather than
-matching lines.
-
-```console
-$ xclocsmith scan
-FAIL  strings not in a catalog (2):
-  App/SettingsView.swift:7  [Toggle]  "Export Backup"
-      → App/Localizable.xcstrings
-  App/SettingsView.swift:6  [Button]  "Scan Storage"
-      → App/Localizable.xcstrings
-
-note  localization bypasses (1):
-  App/Legacy.swift:5  .text = "…" needs String(localized:) to localize
-      titleLabel.text = "Welcome back"
-
-note  keys not referenced in source — App/Localizable.xcstrings (1):
-  - Retired string
-  Review before removing: keys built at runtime cannot be seen from source.
-
-Scanned 2 Swift file(s), 3 user-visible string(s).
-2 failing finding(s), 2 advisory. Exit 1.
-```
-
-**Recognized:** SwiftUI initializers and modifiers, `String(localized:)`,
-`AttributedString(localized:)`, `LocalizedStringResource`, `NSLocalizedString` —
-and your own APIs. `"Save".localized` is matched by name (`localizedAccessors`
-in the config); a wrapper function is found by *reading its body* — if its first
-parameter reaches a localization API, it localizes, while a function merely
-named `localize` does not qualify. Likewise your own views: if `StatRow` renders
-its `label` through `LocalizedStringKey`, then `StatRow(label: "Best Drop")` is
-a key, and the same parameter name on a type that does not localize it stays
-quiet.
-
-Partial arguments count — `Text(flag ? "Yes" : "No")` is two keys,
-`Text("Hello \(name)")` is matched against `"Hello %@"` — and tables resolve at
-the call site, so `Text("Failed", tableName: "Errors")` is checked against
-`Errors.xcstrings` even when the key exists in some other table.
-
-**Bypasses** are advisories: `Text(verbatim:)`, string concatenation, UIKit
-`label.text =` and `setTitle(_:)` — all of which display text no catalog will
-translate. Test code is not scanned, and keys still living in a `.strings` file
-are counted as localized, not reported.
-
-**Keys nothing references** feed `prune`. Deleting is irreversible, so the check
-is deliberately hard to satisfy: a key survives if it is mentioned anywhere in
-the Swift text, a XIB, plist, storyboard, `.strings` or JSON file.
-`InfoPlist.xcstrings`, `AppShortcuts.xcstrings` and Interface Builder keys like
-`3aJ-8X-AqP.title` are exempt entirely.
-
-## The project around the catalogs
-
-Two checks that need more than a catalog to answer, which is why nothing else
-runs them. Both ship as a user in some language reading English.
-
-**Info.plist strings that reach no catalog.** DuckDuckGo declares
-`NSLocalNetworkUsageDescription` in its Info.plist and in none of its
-`InfoPlist.xcstrings`, so that permission prompt is English for every
-non-English user. Both places a modern project can declare these are read — the
-`Info.plist` file and the `INFOPLIST_KEY_…` build settings Xcode generates it
-from — and only permission descriptions and `CFBundleDisplayName` count, because
-`CFBundleName` is `$(PRODUCT_NAME)` almost everywhere.
-
-**Catalogs shipping fewer languages than their neighbours.** iOS resolves a
-language per *bundle*, not per app: an `Errors.xcstrings` with twelve languages
-beside a `Localizable.xcstrings` with twenty means eight locales get a
-translated interface and English error messages. Each catalog looks complete on
-its own, and Xcode never puts them side by side. GoMap's GPX widget carries ten
-fewer languages than the app around it.
-
-## Adopting it on a project that already ships
-
-A mature catalog has hundreds of findings. There is no version of "fix these
-first" that ends with the check switched on, so the check never gets switched
-on, and the next defect arrives unnoticed.
-
-```bash
-xclocsmith check --update-baseline                        # accept what is there today
-xclocsmith check --baseline .xclocsmith-baseline.json     # fails only on what is new
-```
-
-Whisky goes from 68 failing and 513 advisory findings to clean; adding one key
-with a dropped `%@` puts it back to failing. The file is sorted, readable JSON
-rather than hashes — deleting a line un-suppresses a finding, and a pull request
-diff says which string stopped being accepted. There are no globs and no
-wildcards: every entry names one finding, so nothing is silenced by accident.
-
-Entries that match nothing are reported too. A baseline nobody prunes stops
-being a ratchet and becomes a drawer.
-
-## Reviewing a change
-
-```bash
-xclocsmith diff HEAD                         # every catalog, against a commit
-xclocsmith diff old.xcstrings new.xcstrings  # two files, no git involved
-```
-
-The finding this exists for is a **source string that changed while its
-translations did not**. Xcode marks translations `needs_review` when *it*
-notices the source move — but only for edits made in its own editor. A string
-changed by a merge, a script, an `add` or a hand edit leaves every translation
-underneath reading `translated` and saying the wrong thing. `git diff` shows
-the English line changing; it cannot tell you which of the nineteen
-translations below it were left behind. IceCubesApp's stranded Belarusian in
-the table above is exactly this, caught here at the commit that introduces it
-instead of years later. The report names the stranded languages and suggests
-`set --state needs_review`; added and removed keys are notes, and only
-stranded translations fail.
-
-## Editing catalogs
-
-```bash
-xclocsmith add translations.json           # a payload, one catalog and language
-xclocsmith set "Save" "保存" --lang ja
-xclocsmith prune                           # report unreferenced keys
-xclocsmith prune --apply
-```
-
-Files are written byte-for-byte in Xcode's own format, so an edit produces a
-one-line diff instead of reordering the whole catalog. `add` and `set` merge
-into the existing structure and refuse, rather than silently flatten, when a
-localization holds plural variations or substitutions:
-
-```
-FAIL  1 key(s) not written:
-  holds substitutions (%#@name@ arguments); pass --flatten to overwrite:
-    - Found %#@count@
-```
-
-Refusals carry their reason, because "not in the catalog" and "would destroy
-plural variations" call for different fixes. The other guards:
-
-- Keys differing only by case are refused — Xcode cannot generate symbols for
-  both — including two such keys inside a single payload.
-- `set` will not create a key that is not already in the catalog without
-  `--create`, so a typo cannot quietly add one. Writing a language the catalog
-  has never seen requires `--add-language`, and the error suggests the code you
-  probably meant.
-- `prune` refuses to remove more than a quarter of a catalog without `--force`,
-  and never writes anything if any catalog trips that guard.
-- Duplicate keys, canonically-equivalent keys (NFC vs NFD) and malformed numbers
-  are rejected on read rather than "repaired" by dropping one.
-
-The `add` payload is the filled-in template from `check --out`. Beyond plain
-`"key": "value"` pairs it takes a per-key `state` and `comment`, and a `plural`
-object for variations. `"TODO"` values are left alone, so a template can be
-filled in over several passes; a bare `{"key": "value"}` object also works,
-with `--lang` and the catalog from the command line; `-` reads from stdin.
-
-## Localization catalogs (`.xcloc`)
-
-When a vendor or an agent returns an Xcode Localization Catalog, the risky
-moment is the import: `xcodebuild -importLocalizations` warns about
-untranslated files, but it does not compare format specifiers, so a `%@` where
-your code passes an integer goes straight into the app.
-
-```bash
-xclocsmith xcloc check ja.xcloc      # validate before importing — reads only
-xclocsmith xcloc apply ja.xcloc --apply
-```
-
-`xcloc check` reports format specifiers in each `<target>` against its
-`<source>`, plural units missing the categories the target language requires,
-`contents.json` and the XLIFF disagreeing about the target language,
-machine-translated units (`state-qualifier="leveraged-mt"`, which Xcode's agent
-workflow writes), units whose key is in none of your catalogs, and catalog keys
-the bundle omits. A bare `.xliff` works too, since localizers often return one.
-
-`xcloc apply` is `-importLocalizations` without a project or a build: it routes
-each `<file>` element to the catalog for its table, merges into the existing
-structure, and maps XLIFF states onto catalog states — machine translation is
-always imported as `needs_review`, whatever the XLIFF claims. It will not
-invent keys (an XLIFF translates a catalog, it does not extend one) and it will
-not guess at a variation it does not recognize; both are reported and skipped.
-
-## Configuration
-
-`.xclocsmith.json`, found by walking up from the working directory. Everything
-is optional; `xclocsmith init` writes one.
-
-```json
-{
-  "targets": [
-    {
-      "name": "App",
-      "sources": ["App", "Packages/DesignSystem"],
-      "catalogs": ["App/Localizable.xcstrings", "App/Errors.xcstrings"]
-    }
-  ],
-  "languages": ["ja", "de"],
-  "excludePaths": ["**/Generated/*.swift"],
-  "ignoreSimilar": [["Max Temperature", "Min Temperature"]],
-  "glossary": {
-    "Onsen": { "ja": "温泉", "de": "Onsen" },
-    "Furolog": { "*": "Furolog" }
-  }
-}
-```
-
-| Key | Meaning |
-|---|---|
-| `targets` | What compiles into what. `sources` are files that ship in this target; its `catalogs` must contain their strings. |
-| `referenceSources` | Scanned only to decide whether a key is still used. Put shared packages here when you are not sure which targets compile them. |
-| `inferred` | Written by `init` when a target was guessed from the directory layout. While present, a key found in another target's catalog for the same table counts. Delete it once the sources really are that target's. |
-| `languages` | Languages to check, even if the catalog has no entries for one yet. |
-| `excludePaths` | Glob patterns against repo-relative paths. |
-| `ignoreStrings` | Literal values `scan` should never report. |
-| `ignoreSimilar` | Acknowledged near-duplicate pairs, and duplicate source strings you have decided to keep. |
-| `glossary` | Terms whose translation is fixed. `"*"` applies to every language; a named language overrides it, and a regional code inherits its base (`pt-BR` follows `pt` unless it says otherwise). |
-| `localizedAccessors` | Members that localize the literal they are on. Defaults to `localized`, `localizedString`, `localizedValue`, `loc`, `l10n`. |
-| `localizableCalls`, `localizableModifiers`, `localizableParams` | Extra contexts to treat as user-visible. |
-| `skipCalls`, `skipParams` | Contexts to treat as internal. These win over the built-in tables. |
-| `similarityThreshold` | Near-duplicate threshold, 50–99 (default 85). |
-| `scanPreviews` | Report strings inside `#Preview` bodies (default `false`). |
-
-In source, two directives override any of it:
-
-```swift
-Text("Debug only")        // xclocsmith:ignore
-// xclocsmith:ignore-file  ← anywhere in a file, skips the whole file
-```
-
-## Continuous integration
-
-String Catalogs need a Swift toolchain, so this wants a macOS runner.
-
-```yaml
-jobs:
-  localization:
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-      - run: swift build -c release --package-path Tools/xclocsmith
-      - run: Tools/xclocsmith/.build/release/xclocsmith check --format github
-      - run: Tools/xclocsmith/.build/release/xclocsmith scan --format github
-```
-
-`check`, `scan`, `diff` and `xcloc check` take `--format github`, which
-annotates the PR diff, and `--format sarif`, which GitHub code scanning
-ingests. Both point at the line the key is declared on rather than at the top
-of a four-thousand-line catalog.
-
-### `--format github`
-
-Workflow commands on stdout, one per finding. GitHub turns each into an inline
-comment on the diff:
-
-```console
-$ xclocsmith check --format github
-::error file=App/Localizable.xcstrings,line=14,title=missing-translation::"Export Backup" has no ru translation.
-::error file=App/Localizable.xcstrings,line=4,title=format-mismatch::[ru] "Delete %25@" has 0 format specifier(s), the source has 1 — "Delete %25@" → "Удалить"
-```
-
-`%25` is not a bug: a literal `%` has to be percent-encoded in a workflow
-command, and GitHub decodes it, so the annotation reads `"Delete %@"` on the
-pull request. Failures are `::error`, advisories `::warning`.
-
-Worth knowing before you point this at a large catalog: GitHub renders **10
-warning, 10 error and 10 notice annotations per step, and 50 per job** —
-[documented in `actions/toolkit`](https://github.com/actions/toolkit/blob/main/docs/problem-matchers.md).
-Findings past that are still in the log and still fail the run, but they are
-not annotated. On a project with a backlog, either take a
-[baseline](#adopting-it-on-a-project-that-already-ships) first, or use SARIF,
-which has no such cap.
-
-### `--format sarif`
-
-The whole document, from the same two findings — this is the entire output, not
-an excerpt:
-
-```json
-{
-  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
-  "runs": [
-    {
-      "results": [
-        {
-          "level": "error",
-          "locations": [
-            {
-              "physicalLocation": {
-                "artifactLocation": {
-                  "uri": "App/Localizable.xcstrings",
-                  "uriBaseId": "%SRCROOT%"
-                },
-                "region": {
-                  "startLine": 14
-                }
-              }
-            }
-          ],
-          "message": {
-            "text": "\"Export Backup\" has no ru translation."
-          },
-          "ruleId": "missing-translation"
-        },
-        {
-          "level": "error",
-          "locations": [
-            {
-              "physicalLocation": {
-                "artifactLocation": {
-                  "uri": "App/Localizable.xcstrings",
-                  "uriBaseId": "%SRCROOT%"
-                },
-                "region": {
-                  "startLine": 4
-                }
-              }
-            }
-          ],
-          "message": {
-            "text": "[ru] \"Delete %@\" has 0 format specifier(s), the source has 1 — \"Delete %@\" → \"Удалить\""
-          },
-          "ruleId": "format-mismatch"
-        }
-      ],
-      "tool": {
-        "driver": {
-          "informationUri": "https://github.com/akko/xclocsmith",
-          "name": "xclocsmith",
-          "rules": [
-            {
-              "defaultConfiguration": {
-                "level": "error"
-              },
-              "fullDescription": {
-                "text": "A key has no translation in a language being checked."
-              },
-              "help": {
-                "text": "A key has no translation in a language being checked."
-              },
-              "id": "missing-translation",
-              "name": "missing-translation",
-              "shortDescription": {
-                "text": "A key has no translation in a language being checked."
-              }
-            },
-            {
-              "defaultConfiguration": {
-                "level": "error"
-              },
-              "fullDescription": {
-                "text": "A translation's format specifiers disagree with the source string."
-              },
-              "help": {
-                "text": "A translation's format specifiers disagree with the source string."
-              },
-              "id": "format-mismatch",
-              "name": "format-mismatch",
-              "shortDescription": {
-                "text": "A translation's format specifiers disagree with the source string."
-              }
-            }
-          ],
-          "version": "0.1.0"
-        }
-      }
-    }
-  ],
-  "version": "2.1.0"
-}
-```
-
-Points worth noticing, because they are what makes the difference between a
-file GitHub accepts and one it rejects:
-
-- **`tool.driver.rules` carries only the rules this run actually used**, each
-  with its `defaultConfiguration.level`. Code scanning shows that description
-  beside the alert, so a reviewer who has never heard of `format-mismatch`
-  still knows what it means.
-- **Paths are repository-relative under `%SRCROOT%`.** A finding in a file
-  outside the project root is emitted as an absolute `file://` URI with no
-  `uriBaseId`, since there is nothing for GitHub to resolve it against.
-- **Failures are `error` and advisories are `warning`**, matching the exit
-  code, and `--strict` makes advisories fail the run too.
-- **Rule ids are stable** — `missing-translation`, `format-mismatch`,
-  `divergent-translation`, `string-not-in-catalog`, `placeholder-translation`
-  and so on — so a dismissal or a filter written against one keeps working.
-  They are the same ids a [baseline](#adopting-it-on-a-project-that-already-ships)
-  records.
-
-Uploading it is the standard action:
-
-```yaml
-      - run: xclocsmith check --format sarif > localization.sarif
-      - uses: github/codeql-action/upload-sarif@v3
-        if: always()          # the step above exits 1 on findings; still upload
-        with:
-          sarif_file: localization.sarif
-```
-
-## Editor and commit hooks
-
-`scan --files` reports on the files you name while still reading the whole
-project — whether `L("Take a bath")` is a localization call depends on a
-`func L` declared in some other file, so a linter that reads one file in
-isolation both misses real findings and invents fake ones. Fast enough to run
-on every save, on every project in the table above.
-
-Two ready hooks are in [`Examples/hooks/`](Examples/hooks):
-
-- **`pre-commit`** — checks the staged Swift and catalogs, nothing else.
-  `ln -s ../../Examples/hooks/pre-commit .git/hooks/pre-commit`.
-- **`claude-code-hook.py`** — a Claude Code `PostToolUse` hook. When an agent
-  writes a Swift file it hears about strings that reach no catalog; when it
-  writes a catalog, about broken format specifiers, case collisions and a
-  string it just gave a second translation. Exit 2 hands the message back to
-  the model, so it fixes what it wrote instead of hearing about it at review
-  time.
-
-Neither hook asks about translation coverage: a string added in this edit has
-no Japanese yet and is not supposed to. That is what `check` across the project
-is for, at a moment when somebody means to translate — see
-[Translating with a model](#translating-with-a-model) for the other half, where
-an agent fills that Japanese in and has to prove it.
-
-## MCP server
-
-`xclocsmith-mcp` speaks the Model Context Protocol over stdio. It is how an
-agent runs the [translation loop](#translating-with-a-model) itself rather than
-being handed a template: find what is missing, write it, check its own work.
-The reason to prefer it over shelling out is permission granularity — the
-reading tools and the writing tools are separate, annotated tools, so a host
-can grant one set and confirm the other.
-
-```json
-{
-  "mcpServers": {
-    "xclocsmith": { "command": "/usr/local/bin/xclocsmith-mcp" }
-  }
-}
-```
-
-| Tool | Reads | Writes |
-|---|---|---|
-| `check_catalogs`, `scan_sources`, `lookup_keys`, `xcloc_check` | ✔ | — |
-| `add_translations`, `set_translation`, `xcloc_apply` | ✔ | on request |
-| `prune_catalogs` | ✔ | on request, and marked destructive |
-
-Every tool takes an absolute `projectRoot`, because an MCP server has no
-working directory. Writing tools default to reporting — `prune_catalogs` and
-`xcloc_apply` do nothing until `apply: true`, and `add_translations` /
-`set_translation` accept `dryRun` — and results carry the same report the
-CLI's `--json` emits. The server has no dependencies either; `swift build`
-produces it alongside the CLI.
+**Exit codes:** `0` clean, `1` findings, `2` usage or I/O error. Every command
+that reports findings takes `--json`, and `<command> --help` lists exactly the
+flags it accepts — an unknown flag is an error, never a silent no-op. The full
+contract automation can rely on is in
+[docs/agents.md](docs/agents.md#the-cli-contract).
+
+## Documentation
+
+- [Translating with a model](docs/translating.md) — the loop, the template
+  format, `translate.sh`, and what the verify step catches.
+- [Checking catalogs](docs/checking.md) — failing rules, advisories, argument
+  order, and `diff`.
+- [Scanning your source](docs/scanning.md) — what `scan` recognizes, bypasses,
+  and unreferenced keys.
+- [The project around the catalogs](docs/project-checks.md) — Info.plist
+  strings and per-bundle language gaps.
+- [Editing catalogs](docs/editing.md) — `add`, `set`, `prune`, write guards,
+  and `.xcloc` / `.xliff` import.
+- [Configuration](docs/configuration.md) — `.xclocsmith.json` and in-source
+  directives.
+- [Continuous integration](docs/ci.md) — GitHub annotations, SARIF, and
+  baselines.
+- [Agents and automation](docs/agents.md) — the CLI contract, hooks, and the
+  MCP server.
+- [Results on real projects](docs/results.md) — the corpus table and analysis.
 
 ## Out of scope
 
@@ -902,7 +232,7 @@ produces it alongside the CLI.
 
 ## Contributing
 
-`swift test` runs everything — 289 tests. The suite is the specification for
+`swift test` runs everything — 296 tests. The suite is the specification for
 what counts as a user-visible string: `ClassifierTests` is a table of Swift
 snippets and the keys Xcode would extract from them, and `RecallTests` holds
 the idioms real projects use. A change to detection behaviour belongs there
