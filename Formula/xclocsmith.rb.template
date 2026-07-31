@@ -5,13 +5,15 @@ class Xclocsmith < Formula
   desc "Linter and editor for Xcode String Catalogs"
   homepage "https://github.com/asutekku/xclocsmith"
   url "https://github.com/asutekku/xclocsmith/releases/download/v__VERSION__/xclocsmith-__VERSION__-macos-universal.tar.gz"
+  # No `version` line: `brew audit --strict` rejects one it can already read
+  # out of the URL, and a second copy of the number is a second thing to get
+  # wrong. `test do` below still checks it against what the binary reports.
   sha256 "__SHA256__"
-  version "__VERSION__"
   license "MIT"
 
   # The release ships one universal binary, so there is no per-architecture
-  # bottle to pick between. String Catalogs are macOS-only.
-  depends_on :macos
+  # bottle to pick between. `macos:` already restricts this to macOS; pairing it
+  # with a bare `depends_on :macos` is deprecated and warns on every install.
   depends_on macos: :ventura
 
   def install

@@ -72,9 +72,11 @@ jobs:
       # exists once the tarball does. Copy it into the tap.
       - name: Render the Homebrew formula
         run: |
-          sed -e "s|__VERSION__|${{ steps.version.outputs.version }}|g" \
-              -e "s|__SHA256__|${{ steps.package.outputs.sha256 }}|g" \
-              Formula/xclocsmith.rb.template > xclocsmith.rb
+          # tail -n +4 drops the template's own header, which explains that the
+          # template is not installable and is untrue of the rendered copy.
+          tail -n +4 Formula/xclocsmith.rb.template \
+            | sed -e "s|__VERSION__|${{ steps.version.outputs.version }}|g" \
+                  -e "s|__SHA256__|${{ steps.package.outputs.sha256 }}|g" > xclocsmith.rb
           cat xclocsmith.rb
 
       - name: Publish
