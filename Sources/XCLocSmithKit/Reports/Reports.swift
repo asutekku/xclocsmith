@@ -542,3 +542,102 @@ public struct WriteReports: Report {
         ])
     }
 }
+
+// MARK: - rename
+
+/// What renaming a key would do, or did.
+///
+/// Reports before it acts: the whole risk of this command is a half-understood
+/// edit across a catalog and a dozen source files, so the default run says what
+/// it would touch and writes nothing.
+public struct RenameReport: Report {
+    /// One call site to rewrite, or one it will not.
+    public struct SourceEdit: Equatable, Sendable {
+        public let file: String
+        public let line: Int
+        /// How the string was recognised, e.g. `Text` or `StatRow(label:)`.
+        public let context: String
+        /// Byte offsets of the literal, including any raw-string hashes.
+        public let start: Int
+        public let end: Int
+        /// Why this one is being left alone, if it is.
+        public let skipped: String?
+
+        public init(file: String, line: Int, context: String, start: Int, end: Int, skipped: String?) {
+            self.file = file
+            self.line = line
+            self.context = context
+            self.start = start
+            self.end = end
+            self.skipped = skipped
+        }
+    }
+
+    public let oldKey: String
+    public let newKey: String
+    public let applied: Bool
+    public var catalog = ""
+    /// Non-source languages whose translations move with the key.
+    public var languagesCarried: [String] = []
+    /// True when the key was its own English and that English is being written
+    /// into the catalog as the source-language value.
+    public var movesEnglishIntoCatalog = false
+    public var sourceEdits: [SourceEdit] = []
+
+    public init(oldKey: String, newKey: String, applied: Bool) {
+        self.oldKey = oldKey
+        self.newKey = newKey
+        self.applied = applied
+    }
+
+    public var rewrites: [SourceEdit] { sourceEdits.filter { $0.skipped == nil } }
+    public var skipped: [SourceEdit] { sourceEdits.filter { $0.skipped != nil } }
+
+    /// A call site that cannot be rewritten fails the run: renaming the key and
+    /// leaving a reference to the old one behind is a string that silently
+    /// stops resolving.
+    public var failures: Int { skipped.count }
+    public var advisories: Int { 0 }
+
+    public var findings: [Finding] {
+        skipped.map { edit in
+            Finding(
+                rule: "rename-unresolved-call-site",
+                level: .error,
+                message: "\(edit.context) at \(edit.file):\(edit.line) uses \"\(oldKey)\" and "
+                    + "was not rewritten — \(edit.skipped ?? "unknown reason").",
+                file: edit.file,
+                line: edit.line,
+                key: oldKey
+            )
+        }
+    }
+
+    public var jsonValue: JSONValue {
+        .object([
+            "oldKey": .string(oldKey),
+            "newKey": .string(newKey),
+            "catalog": .string(catalog),
+            "applied": .bool(applied),
+            "movesEnglishIntoCatalog": .bool(movesEnglishIntoCatalog),
+            "languagesCarried": .array(languagesCarried.map { .string($0) }),
+            "rewrites": .array(rewrites.map { edit in
+                .object([
+                    "file": .string(edit.file),
+                    "line": .number("\(edit.line)"),
+                    "context": .string(edit.context),
+                ])
+            }),
+            "skipped": .array(skipped.map { edit in
+                .object([
+                    "file": .string(edit.file),
+                    "line": .number("\(edit.line)"),
+                    "context": .string(edit.context),
+                    "reason": .string(edit.skipped ?? ""),
+                ])
+            }),
+            "failures": .number("\(failures)"),
+            "advisories": .number("\(advisories)"),
+        ])
+    }
+}

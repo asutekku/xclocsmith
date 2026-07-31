@@ -65,6 +65,32 @@ enum Registry {
             """
     )
 
+    static let rename = CommandSpec(
+        name: "rename",
+        summary: "Give a key a new name, in the catalog and at every call site.",
+        usage: "xclocsmith rename \"<old key>\" <new.key> [catalog.xcstrings] [--apply]",
+        flags: [Flags.config, Flags.noConfig, Flags.json, Flags.apply, Flags.catalogOnly],
+        discussion: """
+            Reports without writing unless --apply is given.
+
+            For migrating off keys that are their own English. There the key is
+            the content, so rewording the sentence renames the key, and every
+            translation underneath is orphaned rather than flagged. Under an
+            identifier key the same edit changes a value, which `diff` catches.
+
+            The entry moves whole — comment, extraction state, every
+            localization and any plural or device variations. A key that was its
+            own English gains that English as its source-language value, so it
+            is not lost with the key.
+
+            Refuses when the new key already exists, when it differs from an
+            existing key only by case, and when the old key is in more than one
+            catalog and none was named. A call site that cannot be rewritten
+            exactly fails the run rather than being left pointing at a key that
+            no longer exists; --catalog-only skips source rewriting entirely.
+            """
+    )
+
     static let add = CommandSpec(
         name: "add",
         summary: "Apply a payload of translations to a catalog.",
@@ -171,7 +197,7 @@ enum Registry {
 
     static let xclocActions: [CommandSpec] = [xclocCheck, xclocApply]
 
-    static let all: [CommandSpec] = [check, scan, diff, prune, add, set, lookup, xclocCheck, xclocApply, initialize]
+    static let all: [CommandSpec] = [check, scan, diff, prune, rename, add, set, lookup, xclocCheck, xclocApply, initialize]
 
     static var allFlags: Set<String> {
         Set(all.flatMap { $0.flags.map(\.name) })

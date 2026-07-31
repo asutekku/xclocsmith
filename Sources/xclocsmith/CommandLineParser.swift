@@ -37,6 +37,7 @@ enum Flags {
     static let noTemplate = Flag.bool("--no-template", "Do not write a translation template.")
     static let dryRun = Flag.bool("--dry-run", "Report what would change without writing.")
     static let apply = Flag.bool("--apply", "Actually write the changes.")
+    static let catalogOnly = Flag.bool("--catalog-only", "Rename in the catalog without rewriting call sites.")
     static let force = Flag.bool("--force", "Override safety checks.")
     static let state = Flag.value("--state", "Translation state to write (new, needs_review, translated).")
     static let flatten = Flag.bool("--flatten", "Allow overwriting plural variations or substitutions.")

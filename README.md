@@ -44,6 +44,7 @@ It does Xcode localization and nothing else. No dependencies — `swift build` i
 - **[Check the project around the catalogs](docs/project-checks.md)** — an untranslated `Info.plist` permission prompt, a development region that is not the source language, one catalog shipping fewer languages than its neighbours. iOS resolves a language per bundle, and each file looks complete on its own.
 - **[Edit catalogs](docs/editing.md)** — `add`, `set`, `prune` — writing Xcode's exact format back, so the diff is your change and nothing else. [Validate an `.xcloc` or `.xliff`](docs/editing.md#localization-catalogs-xcloc) before importing it — it compares format specifiers against the source, which Xcode's own import does not.
 - **[Review a change](docs/checking.md#reviewing-a-change-diff)** — `diff` finds translations stranded by an edit to the English, against a git ref or between two files.
+- **[Migrate off keys that are sentences](docs/editing.md#renaming-a-key)** — when the key *is* the English, rewording it orphans every translation silently. `check` flags those keys and ranks them by what they would cost; `rename` moves one to an identifier, carrying the translations, the comment and the English with it, and rewrites the call sites.
 - **[Gate CI](docs/ci.md)** — SARIF and GitHub annotations on the line the key is declared on, stable rule ids, and [baselines](docs/ci.md#adopting-it-on-a-project-that-already-ships) so a project with three hundred existing findings can switch the check on today.
 
 ## Installation
@@ -161,6 +162,7 @@ Nine open-source apps, `init && check && scan` with no hand-written config — 8
 | `xcloc check` | Validates an `.xcloc` or `.xliff` before you import it. | never |
 | `xcloc apply` | Imports an `.xcloc` or `.xliff` into your catalogs. | with `--apply` |
 | `prune` | Removes keys no source references. | with `--apply` |
+| `rename` | Renames a key in the catalog and at every call site. | with `--apply` |
 | `add` | Applies a payload of translations. | yes, `--dry-run` to preview |
 | `set` | Sets one translation. | yes, `--dry-run` to preview |
 | `init` | Writes `.xclocsmith.json`. | yes |
@@ -188,7 +190,7 @@ Nine open-source apps, `init && check && scan` with no hand-written config — 8
 
 ## Contributing
 
-`swift test` runs everything — 302 tests. The suite is the specification for what counts as a user-visible string: `ClassifierTests` is a table of Swift snippets and the keys Xcode would extract from them, and `RecallTests` holds the idioms real projects use. A change to detection behaviour belongs there first.
+`swift test` runs everything — 330 tests. The suite is the specification for what counts as a user-visible string: `ClassifierTests` is a table of Swift snippets and the keys Xcode would extract from them, and `RecallTests` holds the idioms real projects use. A change to detection behaviour belongs there first.
 
 ## Licence
 

@@ -295,6 +295,34 @@ func run() -> Int32 {
                 strict: strict
             )
 
+        case "rename":
+            let configuration = try makeConfiguration(parsed)
+            guard parsed.positionals.count >= 2 else {
+                throw SmithError.usage("rename needs the old key and the new key")
+            }
+            let catalogArgument = parsed.positionals.count > 2 ? parsed.positionals[2] : nil
+            let command = RenameCommand(
+                workspace: Workspace(configuration: configuration),
+                options: .init(
+                    apply: parsed.isSet(Flags.apply),
+                    updateSources: !parsed.isSet(Flags.catalogOnly)
+                )
+            )
+            let report = try command.run(
+                from: parsed.positionals[0],
+                to: parsed.positionals[1],
+                catalogPath: catalogArgument
+            )
+            if json {
+                print(JSONWriter.text(report.jsonValue, style: .plain), terminator: "")
+            } else {
+                print(renderer.render(report))
+                if !parsed.isSet(Flags.apply), report.failures == 0 {
+                    print("Nothing was written. Re-run with --apply to make this change.")
+                }
+            }
+            return report.failures > 0 ? 1 : 0
+
         case "prune":
             let configuration = try makeConfiguration(parsed)
             if parsed.isSet(Flags.dryRun) && parsed.isSet(Flags.apply) {

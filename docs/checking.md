@@ -52,3 +52,9 @@ xclocsmith diff old.xcstrings new.xcstrings  # two files, no git involved
 ```
 
 The finding this exists for is a **source string that changed while its translations did not**. Xcode marks translations `needs_review` when *it* notices the source move — but only for edits made in its own editor. A string changed by a merge, a script, an `add` or a hand edit leaves every translation underneath reading `translated` and saying the wrong thing. `git diff` shows the English line changing; it cannot tell you which of the nineteen translations below it were left behind. IceCubesApp's stranded Belarusian in the [results table](results.md) is exactly this, caught here at the commit that introduces it instead of years later. The report names the stranded languages and suggests `set --state needs_review`; added and removed keys are notes, and only stranded translations fail.
+
+## Keys that are sentences
+
+`sentence-key` is advisory and reports what an edit would cost: keys of five words or more that carry at least one translation. Using the English as the key is a documented style and fine for `"Save"` — it stops working when the key is prose, because then rewording it is a rename, and a rename orphans every translation silently. [`rename`](editing.md#renaming-a-key) migrates one to an identifier.
+
+Across the nine sample projects that is GoMap with 94 such keys holding 1,842 translations, one of them in 31 languages, and Loop with 96 holding 1,248. Whisky, NetNewsWire and Mastodon key by identifier throughout and report none.

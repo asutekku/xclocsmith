@@ -460,6 +460,37 @@ public struct TextRenderer {
 
     // MARK: - writes
 
+    public func render(_ report: RenameReport) -> String {
+        var lines: [String] = []
+        let prefix = report.applied ? "" : "[report] "
+        lines.append("\(prefix)\(report.catalog): \"\(escaped(report.oldKey))\" → \"\(escaped(report.newKey))\"")
+
+        if !report.languagesCarried.isEmpty {
+            lines.append("  \(report.languagesCarried.count) translation(s) move with it: "
+                + report.languagesCarried.joined(separator: ", "))
+        }
+        if report.movesEnglishIntoCatalog {
+            lines.append("  the key was its own English; that text becomes the source-language value")
+        }
+        if report.rewrites.isEmpty {
+            lines.append("  no call sites to rewrite")
+        } else {
+            lines.append("  \(report.rewrites.count) call site(s):")
+            for edit in report.rewrites.prefix(maximumListLength) {
+                lines.append("    - \(edit.file):\(edit.line)  [\(edit.context)]")
+            }
+        }
+        if !report.skipped.isEmpty {
+            lines.append("")
+            lines.append("  FAIL  call sites that cannot be rewritten (\(report.skipped.count)):")
+            for edit in report.skipped {
+                lines.append("    - \(edit.file):\(edit.line)  [\(edit.context)] — \(edit.skipped ?? "")")
+            }
+            lines.append("    Renaming now would leave these pointing at a key that no longer exists.")
+        }
+        return lines.joined(separator: "\n")
+    }
+
     public func render(_ report: WriteReport) -> String {
         var lines: [String] = []
         let prefix = report.dryRun ? "[dry run] " : ""

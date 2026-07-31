@@ -547,4 +547,53 @@ public struct Catalog {
     public mutating func remove(_ key: String) {
         strings.removeValue(forKey: key)
     }
+
+    /// Moves a key, keeping everything underneath it.
+    ///
+    /// The entry is moved whole — comment, extraction state, `shouldTranslate`,
+    /// every localization, and any plural, device or substitution variations —
+    /// because the point of renaming is that none of that changes.
+    ///
+    /// The one thing that has to be *added* is the source-language value. In a
+    /// catalog keyed by its English, Xcode stores no `en` localization at all:
+    /// the key is the value. Rename the key to an identifier without putting
+    /// that English somewhere and it is gone, and every translation is left
+    /// describing a string nobody can read. So when the entry has no
+    /// source-language text of its own, the old key becomes it.
+    ///
+    /// Throws rather than overwriting an existing key: merging two strings is
+    /// not a rename, and which translations would survive is not something this
+    /// can decide.
+    public mutating func rename(_ old: String, to new: String) throws {
+        guard let entry = strings[old] else {
+            throw SmithError.usage("\"\(old)\" is not a key in \(displayPath)")
+        }
+        guard strings[new] == nil else {
+            throw SmithError.usage(
+                "\"\(new)\" is already a key in \(displayPath); renaming onto it would merge two strings"
+            )
+        }
+        guard old != new else { throw SmithError.usage("the old and new keys are the same") }
+
+        var fields = entry.objectValue ?? [:]
+        if !hasSourceText(old) {
+            var localizations = fields["localizations"]?.objectValue ?? [:]
+            localizations[sourceLanguage] = .object(["stringUnit": .object([
+                "state": .string(TranslationState.translated.rawValue),
+                "value": .string(old),
+            ])])
+            fields["localizations"] = .object(localizations)
+        }
+        strings.removeValue(forKey: old)
+        strings[new] = .object(fields)
+    }
+
+    /// Whether the key carries source-language text of its own, in any shape.
+    ///
+    /// A pluralised or device-varied source has no flat `value`, so asking for
+    /// one and finding nil would wrongly conclude the English was only ever in
+    /// the key — and then overwrite the variations with a flat string.
+    func hasSourceText(_ key: String) -> Bool {
+        localization(key, sourceLanguage) != nil
+    }
 }

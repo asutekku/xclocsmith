@@ -45,6 +45,37 @@ public struct ScanCommand {
         self.options = options
     }
 
+    /// Every user-visible string the scanner recognises, with the file, line
+    /// and table each one resolves to.
+    ///
+    /// `run()` answers "which of these is a problem" and throws the rest away.
+    /// `rename` needs the opposite: every call site that reaches one key,
+    /// problem or not, because those are the literals it has to rewrite. Going
+    /// through the scanner rather than searching for the text is what keeps it
+    /// from touching a string that merely contains the key, or one belonging to
+    /// another table.
+    public func occurrences() throws -> [FoundString] {
+        var files: [String: AnalyzedSource] = [:]
+        for target in workspace.targets {
+            for file in workspace.sources(in: target.sources) { files[file.path] = file }
+        }
+        // Test code is dropped here for the same reason it is in `run()`: a
+        // literal in a test is not a call site anybody ships.
+        let ordered = files.values.sorted { $0.path < $1.path }.filter { !$0.isTestCode }
+        guard !ordered.isEmpty else { return [] }
+
+        let discovered = LocalizableDiscovery.discover(in: ordered)
+        return ordered.flatMap { file in
+            SourceAnalyzer.analyze(
+                file: file,
+                discovered: discovered,
+                options: workspace.configuration.classifierOptions,
+                includePreviews: workspace.configuration.scanPreviews,
+                ignoredStrings: workspace.configuration.ignoredStrings
+            ).strings
+        }
+    }
+
     public func run() throws -> ScanReport {
         var report = ScanReport()
         let configuration = workspace.configuration
