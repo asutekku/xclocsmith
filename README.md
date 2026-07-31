@@ -12,15 +12,41 @@ plural missing `few` and `many`, and a `Text("Get Pro")` that no catalog has eve
 heard of. `xclocsmith` finds all three in about a second, and edits `.xcstrings`
 files without destroying what Xcode put there.
 
-**It is also built to be driven by a model, not only read by a human.**
-`check --out` writes exactly what is missing, in the shape the *target*
-language needs; `add` merges the reply without flattening a plural; and then
-`check` runs again, so a machine translation only lands if it survives the same
-linter your CI runs. [One script](#translating-with-a-model) drives that whole
-loop and re-prompts on failure, an [MCP server](#mcp-server) hands the same
-operations to an agent as separate read and write tools, and a
-[hook](#editor-and-commit-hooks) tells an agent that the file it just wrote
-broke something, while it is still holding the file.
+- **[Translate with a model, and prove it worked.](#translating-with-a-model)**
+  `check --out` writes exactly what is missing in the shape the *target*
+  language needs, `add` merges the reply without flattening a plural, and
+  `check` runs again — so a machine translation only lands if it survives the
+  linter. [One script](#one-command) drives the whole loop across every
+  language and re-prompts the model with the findings when it fails.
+- **[Give an agent the tools instead.](#handing-it-to-an-agent-directly)** An
+  [MCP server](#mcp-server) exposes reading and writing as separately
+  permissioned tools, and a [`PostToolUse` hook](#editor-and-commit-hooks)
+  tells an agent it just wrote a string no catalog knows about, or broke a
+  format specifier — while it is still holding the file, not at review time.
+- **[Check catalogs](#checking-catalogs)** for the defects Xcode compiles
+  anyway: format specifiers that disagree with the source, plurals missing the
+  categories that language actually requires, keys differing only in case,
+  placeholders standing in for translations, glossary violations, and one
+  English string quietly translated two different ways.
+- **[Scan your source](#scanning-your-source)** for user-visible strings that
+  reach no catalog — resolving `LocalizedStringKey`, `String(localized:)`,
+  `Text`, your own wrapper functions and the table each one lands in.
+- **[Check the project around the catalogs](#the-project-around-the-catalogs)**
+  — an untranslated `Info.plist` permission prompt, a development region that
+  is not the source language, one catalog shipping fewer languages than its
+  neighbours. iOS resolves a language per bundle, and each file looks complete
+  on its own.
+- **[Edit catalogs](#editing-catalogs)** — `add`, `set`, `prune` — writing
+  Xcode's exact format back, so the diff is your change and nothing else.
+  [Validate an `.xcloc` or `.xliff`](#localization-catalogs-xcloc) before
+  importing it — it compares format specifiers against the source, which
+  Xcode's own import does not.
+- **[Review a change](#reviewing-a-change)** — `diff` finds translations
+  stranded by an edit to the English, against a git ref or between two files.
+- **[Gate CI](#continuous-integration)** — SARIF and GitHub annotations on the
+  line the key is declared on, stable rule ids, and
+  [baselines](#adopting-it-on-a-project-that-already-ships) so a project with
+  three hundred existing findings can switch the check on today.
 
 It does Xcode localization and nothing else. No dependencies — `swift build` is
 the whole install.
