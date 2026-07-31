@@ -27,7 +27,9 @@ files without destroying what Xcode put there.
   anyway: format specifiers that disagree with the source, plurals missing the
   categories that language actually requires, keys differing only in case,
   placeholders standing in for translations, glossary violations, and one
-  English string quietly translated two different ways.
+  English string quietly translated two different ways. Including
+  [the one that never crashes](#argument-order) — a translation that dropped
+  the source's `%1$@` numbering and now prints two values the wrong way round.
 - **[Scan your source](#scanning-your-source)** for user-visible strings that
   reach no catalog — resolving `LocalizedStringKey`, `String(localized:)`,
   `Text`, your own wrapper functions and the table each one lands in.
@@ -263,7 +265,7 @@ Nine open-source apps, `init && check && scan` with no hand-written config —
 | [Loop](https://github.com/MrKai77/Loop) | 1 · 404 · 13 | 0 | 0 | **3** | **100** / 230 | 1 | 9 (+3 case) | 0 |
 | [NetNewsWire](https://github.com/Ranchero-Software/NetNewsWire) | 9 · 472 · 1 | 0 | 0 | 0 | 0 | 1 | 0 (+4 case) | 85 |
 | [IceCubesApp](https://github.com/Dimillian/IceCubesApp) | 1 · 733 · 18 | **2** | **89** | **62** | **12** / 175 | 1 | 95 | 47 |
-| [Mastodon for iOS](https://github.com/mastodon/mastodon-ios) | 9 · 980 · 53 | **9** | **53** | 0 | **66** / 271 | 3 | 122 | 27 |
+| [Mastodon for iOS](https://github.com/mastodon/mastodon-ios) | 9 · 980 · 53 | **9** | **53** | 0 | **68** / 273 | 3 | 122 | 27 |
 | [HSTracker](https://github.com/HearthSim/HSTracker) | 23 · 777 · 13 | 0 | 0 | **5** | **2** / 45 | 2 | 64 (+1 case) | 10 |
 | [Nimble Commander](https://github.com/mikekazakov/nimble-commander) | 54 · 1322 · 1 | 0 | **1** | **5** | **1** / 66 | 0 | 332 (+2 case) | 0 † |
 | [GoMap](https://github.com/bryceco/GoMap) | 15 · 761 · 33 | **4** | **150** | **28** | **14** / 80 | 9 | 79 (+3 case) | 10 |
@@ -372,6 +374,8 @@ What fails the run:
   (`%2$@ の %1$@`) is fine; substitutions (`%#@count@`) and plural variations
   are expanded and checked through — a German `other` that dropped its `%lld`
   is the single likeliest place for this bug to hide.
+- **A translation that threw away the argument positions the source gave it** —
+  see [argument order](#argument-order), the one that does not crash.
 - **Incomplete plurals against real CLDR categories.** One filled row is
   complete for Japanese and three short for Russian; categories that only apply
   to decimals or compact millions (Czech `many`, French `many`) are not
@@ -389,9 +393,46 @@ record reviewed pairs in `ignoreSimilar` — plus near-duplicates compared on th
 *strings* rather than the keys, translations identical to the source, and the
 softer hygiene rules: punctuation compared by class (`。`, `؟` and Greek `;`
 satisfy their Latin equivalents), edge whitespace, doubled words (reduplicating
-languages like Vietnamese are exempt), `...` where the typographic ellipsis
-belongs, and two or more specifiers with no argument position — which no
-translation can reorder, so write `%1$@`, `%2$@`.
+languages like Vietnamese are exempt), and `...` where the typographic ellipsis
+belongs.
+
+### Argument order
+
+The bug in this family that does *not* crash, and so survives every review:
+two values printed in the wrong order.
+
+```console
+$ xclocsmith check --lang kab          # Mastodon for iOS, wrapped to fit here
+  FAIL  translation hygiene (2):
+    dropped-specifier-position (2) — argument positions the source gave and the translation dropped:
+      - [kab] "Common.Controls.Status.Media.AccessibilityLabel": the source numbers its
+        arguments (%1$@, %2$d, %3$d) and this translation does not, so its specifiers
+        bind in written order — if the sentence puts them the other way round, the
+        values are silently swapped
+      - [kab] "Scene.Register.Input.BirthDate.ExplanationMessage": …
+```
+
+`"%1$@, attachment %2$d of %3$d"` is `"%@, attachment %d of %d"` in Kabyle, and
+the birth-date message the same. Nothing else in the toolchain says a word
+about either.
+
+Two checks, at the two places the mistake can be made:
+
+- **`unordered-specifiers`, against the source** — a source string with two or
+  more bare `%@` cannot be reordered *at all*, so a language that puts the
+  object before the subject has no legal way to translate it. Advisory,
+  because the translations that exist are as right as they can be; the fix is
+  to number the source, and it costs nothing.
+- **`dropped-specifier-position`, against each translation** — the source
+  numbered its arguments and the translation did not. Same specifiers, same
+  types, same count, so the format check passes and Xcode compiles it, but the
+  bare specifiers now bind in written order and any reordering the sentence
+  performs swaps the values. **This one fails the run:** nobody types `%1$@` by
+  accident, so discarding it reverses a decision somebody made deliberately.
+
+A translator who *adds* positions to a source that lacked them has fixed the
+problem, not caused one, and is not reported. Neither is a translation that
+reorders through positions, which is what positions are for.
 
 ## Scanning your source
 

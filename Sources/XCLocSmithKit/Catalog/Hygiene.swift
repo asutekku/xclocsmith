@@ -47,13 +47,15 @@ public struct HygieneFinding: Equatable, Sendable {
         case ellipsisStyle = "ellipsis-style"
         /// Source-side: two or more specifiers a translator cannot reorder.
         case unorderedSpecifiers = "unordered-specifiers"
+        /// A translation that threw away the argument positions the source gave it.
+        case droppedSpecifierPosition = "dropped-specifier-position"
 
         var isFailure: Bool {
             switch self {
             // Text has been lost, mangled, or is about to render as markup.
             case .invisibleCharacter, .bidiControl, .replacementCharacter,
                  .markdown, .inflectionDropped, .newlineCount,
-                 .placeholderTranslation:
+                 .placeholderTranslation, .droppedSpecifierPosition:
                 return true
             // Reads badly, and there are hundreds of them on any catalog with
             // history behind it.
@@ -84,6 +86,8 @@ public struct HygieneFinding: Equatable, Sendable {
             case .placeholderTranslation: return "a placeholder where a translation should be"
             case .ellipsisStyle: return "\"...\" where the typographic ellipsis belongs"
             case .unorderedSpecifiers: return "specifiers a translator cannot reorder"
+            case .droppedSpecifierPosition:
+                return "argument positions the source gave and the translation dropped"
             }
         }
     }
@@ -183,7 +187,41 @@ public enum Hygiene {
                 "the source uses ^[…](inflect: true); without it the translation gets no grammar agreement"
             )
         }
+        if let detail = droppedPositions(source: source, translation: translation) {
+            report(.droppedSpecifierPosition, detail)
+        }
         return findings
+    }
+
+    /// A translation that discarded the argument positions the source gave it.
+    ///
+    /// `"%1$@ sent %2$@ a message"` rendered in German as
+    /// `"%@ hat %@ eine Nachricht geschickt"` has the same specifiers, of the
+    /// same types, in the same number — so the format check passes, Xcode
+    /// compiles it, and nothing warns. But bare specifiers bind in written
+    /// order, and the sentence that needed the two names the other way round is
+    /// exactly why somebody numbered the source in the first place. The names
+    /// come out swapped, in one language, and no test written in English can
+    /// see it.
+    ///
+    /// Only fires when the source numbered *every* specifier: a source that is
+    /// already unordered is reported once against the source by
+    /// `unorderedSpecifiers`, rather than once per language against people who
+    /// were given no way to do better.
+    static func droppedPositions(source: String, translation: String) -> String? {
+        let sourceSpecifiers = FormatSpecifierScanner.specifiers(in: source)
+        guard sourceSpecifiers.count > 1,
+              sourceSpecifiers.allSatisfy({ $0.position != nil }) else { return nil }
+
+        let translated = FormatSpecifierScanner.specifiers(in: translation)
+        // One specifier cannot be out of order with anything.
+        guard translated.count > 1, translated.contains(where: { $0.position == nil }) else {
+            return nil
+        }
+        let numbered = sourceSpecifiers.map(\.raw).joined(separator: ", ")
+        return "the source numbers its arguments (\(numbered)) and this translation "
+            + "does not, so its specifiers bind in written order — if the sentence "
+            + "puts them the other way round, the values are silently swapped"
     }
 
     /// Defects in the source string itself — the ones that make a *translator's*

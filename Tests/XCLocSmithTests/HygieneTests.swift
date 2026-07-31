@@ -237,6 +237,63 @@ final class HygieneTests: XCTestCase {
         XCTAssertTrue(Hygiene.checkSource(key: "k", source: "%@ items", language: "en").isEmpty)
     }
 
+    // MARK: - Dropped argument positions
+
+    /// The defect the format check cannot see: same specifiers, same types,
+    /// same count, and the values come out in the wrong order.
+    ///
+    /// Mastodon's Kabyle renders `"%1$@, attachment %2$d of %3$d"` as
+    /// `"%@, attachment %d of %d"`. Nothing else in the toolchain says a word.
+    func testATranslationThatDroppedTheSourcePositionsIsReported() {
+        XCTAssertEqual(
+            rules(
+                source: "%1$@, attachment %2$d of %3$d",
+                translation: "%@, attachment %d of %d"
+            ),
+            [.droppedSpecifierPosition]
+        )
+    }
+
+    /// Reordering through positions is the whole point of positions.
+    func testAPositionalReorderingIsCorrect() {
+        XCTAssertTrue(rules(
+            source: "%1$@ sent %2$@ a message",
+            translation: "%2$@ さんに %1$@ さんがメッセージを送信しました",
+            language: "ja"
+        ).isEmpty)
+    }
+
+    /// A translator numbering a source that was not numbered has fixed the
+    /// problem, not caused one.
+    func testAddingPositionsTheSourceLacksIsNotReported() {
+        XCTAssertTrue(rules(source: "%@ and %@", translation: "%2$@ und %1$@").isEmpty)
+    }
+
+    /// A source nobody numbered is one finding against the source, not one per
+    /// language against translators who were given no way to do better.
+    func testAnUnnumberedSourceIsNotBilledToItsTranslations() {
+        XCTAssertTrue(rules(source: "%@ of %@", translation: "%@ von %@").isEmpty)
+    }
+
+    /// One specifier cannot be out of order with anything, in either string.
+    func testASingleSpecifierIsNeverReported() {
+        XCTAssertTrue(rules(source: "%1$@ items", translation: "%@ Stück").isEmpty)
+        XCTAssertTrue(rules(source: "%1$@ of %2$@", translation: "%@").isEmpty)
+    }
+
+    /// A partly-numbered source is undefined behaviour in the formatter itself
+    /// and is not this rule's business to adjudicate.
+    func testAPartlyNumberedSourceIsLeftAlone() {
+        XCTAssertTrue(rules(source: "%1$@ of %@", translation: "%@ von %@").isEmpty)
+    }
+
+    /// Failure, not advisory: nobody types `%1$@` by accident, so discarding it
+    /// is a decision being reversed, and what a user sees is two values the
+    /// wrong way round.
+    func testDroppedPositionsFailTheRun() {
+        XCTAssertTrue(HygieneFinding.Rule.droppedSpecifierPosition.isFailure)
+    }
+
     // MARK: - Plurals
 
     func testAllPluralFormsIdenticalIsReported() throws {
