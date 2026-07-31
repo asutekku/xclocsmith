@@ -6,24 +6,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: swift build
-      - name: Locate and run
+      - name: Run check in an empty temp dir
         run: |
           bin="$(swift build --show-bin-path)"
-          echo "bin path: $bin"
-          ls -la "$bin" | head -20
           root=$(swift -e 'import Foundation; print(FileManager.default.temporaryDirectory.path)')
           empty="$root/diagcase/empty"
           mkdir -p "$empty"
           cd "$empty"
-          echo "--- run (30s cap) ---"
+          echo "cwd: $(pwd -P)"
           set +e
-          /usr/bin/time -p timeout 30 "$bin/xclocsmith" check
-          echo "exit=$?"
-          echo "--- with an explicit root ---"
-          /usr/bin/time -p timeout 30 "$bin/xclocsmith" check --no-config
-          echo "exit=$?"
-      - name: The failing test alone, with a cap
+          "$bin/xclocsmith" check > /tmp/out.txt 2> /tmp/err.txt &
+          pid=$!
+          ( sleep 60; kill -9 $pid 2>/dev/null ) &
+          watcher=$!
+          start=$SECONDS
+          wait $pid; status=$?
+          kill $watcher 2>/dev/null
+          echo "exit=$status after $((SECONDS-start))s"
+          echo "--- stdout ---"; head -5 /tmp/out.txt
+          echo "--- stderr ---"; head -5 /tmp/err.txt
+      - name: Sample the process if it is stuck
         run: |
+          bin="$(swift build --show-bin-path)"
+          root=$(swift -e 'import Foundation; print(FileManager.default.temporaryDirectory.path)')
+          empty="$root/diagcase2/empty"; mkdir -p "$empty"; cd "$empty"
           set +e
-          timeout 300 swift test --filter testProjectWithNoCatalogsIsAnErrorNotACleanRun 2>&1 | tail -20
-          echo "exit=$?"
+          "$bin/xclocsmith" check > /dev/null 2>&1 &
+          pid=$!
+          sleep 12
+          if kill -0 $pid 2>/dev/null; then
+            echo "STILL RUNNING after 12s — sampling"
+            sample $pid 5 -file /tmp/sample.txt 2>/dev/null || true
+            sed -n '1,80p' /tmp/sample.txt
+            ps -o rss=,vsz= -p $pid
+            kill -9 $pid
+          else
+            wait $pid; echo "finished, exit=$?"
+          fi
