@@ -22,13 +22,24 @@ enum MCP {
         Every tool needs an absolute `projectRoot`; there is no working directory.
 
         Start with check_catalogs (translation coverage) or scan_sources (strings in \
-        code that no catalog knows about). To fix missing translations, call \
-        add_translations with an xclocsmith/v1 payload, then call check_catalogs again \
-        for the languages you wrote: a translation that dropped a format specifier or \
-        answered a plural with one string is not visible in the text itself, and \
-        nothing else in the toolchain reports it. Before importing a bundle from \
-        a translator, call xcloc_check — it compares format specifiers, which Xcode's \
-        own import does not.
+        code that no catalog knows about).
+
+        To translate what is missing, the loop is: translation_template gives you a \
+        payload with every untranslated key already in the shape that language needs; \
+        replace each "TODO"; pass it to add_translations; then call check_catalogs \
+        again for the languages you wrote. Do not skip that last step and do not \
+        compose the payload by hand from check_catalogs — a translation that dropped a \
+        format specifier, answered a plural with one string, or discarded the source's \
+        %1$@ numbering reads perfectly well and is not visible in the text itself. \
+        Nothing else in the toolchain reports any of it.
+
+        add_translations tells you what it did per key. A key reported "skipped" was \
+        left as "TODO" and is still untranslated; a "refused" key kept a plural or \
+        device variation that a plain string would have destroyed — send that one back \
+        as an object with the categories filled in rather than as a string.
+
+        Before importing a bundle from a translator, call xcloc_check — it compares \
+        format specifiers, which Xcode's own import does not.
 
         prune_catalogs deletes keys permanently and defaults to reporting only; keys \
         assembled at runtime cannot be seen from source, so review its list before \

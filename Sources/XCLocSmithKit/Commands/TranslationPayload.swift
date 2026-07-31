@@ -156,6 +156,35 @@ public struct TranslationPayload {
         comments: [String: String] = [:],
         to path: String
     ) throws {
+        let document = makeTemplate(
+            keys: keys,
+            catalog: catalog,
+            language: language,
+            pluralKeys: pluralKeys,
+            sources: sources,
+            comments: comments
+        )
+        do {
+            try JSONWriter.text(document, style: .plain).write(toFile: path, atomically: true, encoding: .utf8)
+        } catch {
+            throw SmithError.cannotWrite(path: path, reason: error.localizedDescription)
+        }
+    }
+
+    /// The template as a value, for callers with nowhere to put a file.
+    ///
+    /// The MCP server hands this straight to a model: an agent has no working
+    /// directory to write into and no reason to round-trip through one, but it
+    /// needs the same shape a translator gets — four plural rows for Russian and
+    /// one for Japanese, decided here rather than guessed there.
+    public static func makeTemplate(
+        keys: [String],
+        catalog: String,
+        language: String,
+        pluralKeys: Set<String> = [],
+        sources: [String: String] = [:],
+        comments: [String: String] = [:]
+    ) -> JSONValue {
         var strings: [String: JSONValue] = [:]
         for key in keys {
             // `source` is read-only context, and `add` ignores it. It is
@@ -182,17 +211,12 @@ public struct TranslationPayload {
             }
             strings[key] = .object(entry)
         }
-        let document = JSONValue.object([
+        return JSONValue.object([
             "format": .string(formatIdentifier),
             "catalog": .string(catalog),
             "language": .string(language),
             "strings": .object(strings),
         ])
-        do {
-            try JSONWriter.text(document, style: .plain).write(toFile: path, atomically: true, encoding: .utf8)
-        } catch {
-            throw SmithError.cannotWrite(path: path, reason: error.localizedDescription)
-        }
     }
 }
 

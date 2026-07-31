@@ -96,6 +96,8 @@ public struct CatalogReport: Equatable, Sendable {
     public let doNotTranslateKeys: [String]
     public let coverage: [LanguageCoverage]
     public let caseDuplicates: [CaseDuplicate]
+    /// Keys that are English sentences and carry translations an edit would orphan.
+    public let sentenceKeys: [SentenceKey]
     public let similarKeys: [SimilarPair]
     public let duplicateSources: [DuplicateSource]
     public let glossaryViolations: [GlossaryViolation]
@@ -119,6 +121,12 @@ public struct CatalogReport: Equatable, Sendable {
             "notTranslatable": .array(untranslatableKeys.map { .string($0) }),
             "shouldNotTranslate": .array(doNotTranslateKeys.map { .string($0) }),
             "languages": .array(coverage.map(\.jsonValue)),
+            "sentenceKeys": .array(sentenceKeys.map { sentence in
+                .object([
+                    "key": .string(sentence.key),
+                    "translationsAtRisk": .number("\(sentence.translationsAtRisk)"),
+                ])
+            }),
             "caseDuplicates": .array(caseDuplicates.map { duplicate in
                 .object([
                     "keys": .array(duplicate.keys.map { .string($0) }),
@@ -233,6 +241,7 @@ public struct CheckReport: Report {
             // `--strict` promotes them for anyone who wants the ratchet.
             total += catalog.duplicateSources.count
             total += catalog.caseDuplicates.filter { !$0.breaksSymbolGeneration }.count
+            total += catalog.sentenceKeys.count
             total += catalog.hygiene.filter { !$0.isFailure }.count
             for coverage in catalog.coverage {
                 total += coverage.needsReview.count + coverage.identicalToSource.count

@@ -174,6 +174,18 @@ extension CheckReport {
                 ))
             }
 
+            for sentence in catalog.sentenceKeys {
+                findings.append(Finding(
+                    rule: "sentence-key",
+                    level: .warning,
+                    message: "The key is an English sentence carrying "
+                        + "\(sentence.translationsAtRisk) translation(s); rewording it renames the "
+                        + "key and orphans all of them. Give it an identifier instead.",
+                    file: file,
+                    key: sentence.key
+                ))
+            }
+
             for duplicate in catalog.caseDuplicates {
                 findings.append(Finding(
                     rule: duplicate.breaksSymbolGeneration ? "case-collision" : "case-variant",

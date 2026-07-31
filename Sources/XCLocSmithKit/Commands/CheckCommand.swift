@@ -57,57 +57,88 @@ public struct CheckCommand {
         report.diagnostics = workspace.diagnostics
 
         if let templatePath = options.templatePath {
-            // One template per (catalog, language). Pooling them would attribute
-            // every key to the first catalog and the first language, and `add`
-            // would then create them in the wrong file.
-            struct Bucket: Hashable {
-                let catalog: String
-                let language: String
-            }
-            var buckets: [Bucket: [String]] = [:]
-            var pluralisedByCatalog: [String: Set<String>] = [:]
-            for catalogReport in report.catalogs {
-                pluralisedByCatalog[catalogReport.path] = Set(catalogReport.pluralisedKeys)
-                for coverage in catalogReport.coverage where !coverage.isSourceLanguage {
-                    let outstanding = (coverage.missing + coverage.empty).sorted()
-                    guard !outstanding.isEmpty else { continue }
-                    buckets[Bucket(catalog: catalogReport.path, language: coverage.language)] = outstanding
-                }
-            }
-            for (bucket, keys) in buckets.sorted(by: { "\($0.key)" < "\($1.key)" }) {
+            let templates = self.templates(for: report)
+            for template in templates {
                 let path = TemplateNaming.path(
                     base: templatePath,
-                    catalog: bucket.catalog,
-                    language: bucket.language,
-                    disambiguate: buckets.count > 1
+                    catalog: template.catalog,
+                    language: template.language,
+                    disambiguate: templates.count > 1
                 )
-                // The source string and the developer's comment are the whole
-                // of the context a translator gets. Fetching them here costs a
-                // cached catalog read and saves whoever fills this in from
-                // guessing what an identifier key says.
-                var sources: [String: String] = [:]
-                var comments: [String: String] = [:]
-                if let source = workspace.catalog(at: bucket.catalog) {
-                    for key in keys {
-                        if let text = source.displayText(key, source.sourceLanguage) {
-                            sources[key] = text
-                        }
-                        if let comment = source.comment(key) { comments[key] = comment }
-                    }
+                let absolute = workspace.configuration.absolute(path)
+                do {
+                    try JSONWriter.text(template.document, style: .plain)
+                        .write(toFile: absolute, atomically: true, encoding: .utf8)
+                } catch {
+                    throw SmithError.cannotWrite(path: absolute, reason: error.localizedDescription)
                 }
-                try TranslationPayload.writeTemplate(
+                report.templatesWritten.append(path)
+            }
+        }
+        return report
+    }
+
+    /// A fill-in template, one per catalog and language with work outstanding.
+    ///
+    /// Pooling them would attribute every key to the first catalog and the
+    /// first language, and `add` would then create them in the wrong file.
+    ///
+    /// Shared with the MCP server, which returns these to a model instead of
+    /// writing them: the decision about what shape a language needs — four
+    /// plural rows for Russian, one for Japanese — belongs in one place, not in
+    /// whatever the caller happens to remember.
+    public func templates(for report: CheckReport) -> [Template] {
+        struct Bucket: Hashable {
+            let catalog: String
+            let language: String
+        }
+        var buckets: [Bucket: [String]] = [:]
+        var pluralisedByCatalog: [String: Set<String>] = [:]
+        for catalogReport in report.catalogs {
+            pluralisedByCatalog[catalogReport.path] = Set(catalogReport.pluralisedKeys)
+            for coverage in catalogReport.coverage where !coverage.isSourceLanguage {
+                let outstanding = (coverage.missing + coverage.empty).sorted()
+                guard !outstanding.isEmpty else { continue }
+                buckets[Bucket(catalog: catalogReport.path, language: coverage.language)] = outstanding
+            }
+        }
+
+        return buckets.sorted(by: { "\($0.key)" < "\($1.key)" }).map { bucket, keys in
+            // The source string and the developer's comment are the whole of
+            // the context a translator gets. Fetching them here costs a cached
+            // catalog read and saves whoever fills this in from guessing what
+            // an identifier key says.
+            var sources: [String: String] = [:]
+            var comments: [String: String] = [:]
+            if let source = workspace.catalog(at: bucket.catalog) {
+                for key in keys {
+                    if let text = source.displayText(key, source.sourceLanguage) {
+                        sources[key] = text
+                    }
+                    if let comment = source.comment(key) { comments[key] = comment }
+                }
+            }
+            return Template(
+                catalog: bucket.catalog,
+                language: bucket.language,
+                keys: keys,
+                document: TranslationPayload.makeTemplate(
                     keys: keys,
                     catalog: bucket.catalog,
                     language: bucket.language,
                     pluralKeys: pluralisedByCatalog[bucket.catalog] ?? [],
                     sources: sources,
-                    comments: comments,
-                    to: workspace.configuration.absolute(path)
+                    comments: comments
                 )
-                report.templatesWritten.append(path)
-            }
+            )
         }
-        return report
+    }
+
+    public struct Template {
+        public let catalog: String
+        public let language: String
+        public let keys: [String]
+        public let document: JSONValue
     }
 
     private func dedupe(_ findings: [HygieneFinding]) -> [HygieneFinding] {
@@ -369,6 +400,7 @@ public struct CheckCommand {
             doNotTranslateKeys: doNotTranslate,
             coverage: coverage,
             caseDuplicates: SimilarKeys.caseDuplicates(in: catalog),
+            sentenceKeys: KeyStyle.sentenceKeys(in: catalog),
             similarKeys: similar,
             duplicateSources: duplicates,
             glossaryViolations: glossaryViolations,

@@ -110,7 +110,7 @@ enum ToolRegistry {
 
     // MARK: - Tools
 
-    static let all: [MCPTool] = [check, scan, lookup, xclocCheck, add, set, prune, xclocApply]
+    static let all: [MCPTool] = [check, template, scan, lookup, xclocCheck, add, set, prune, xclocApply]
 
     static func tool(named name: String) -> MCPTool? { all.first { $0.name == name } }
 
@@ -204,6 +204,52 @@ enum ToolRegistry {
         )
         let report = try command.run(queries: queries, catalogPaths: nil)
         return result(report, summary: TextRenderer().render(report))
+    }
+
+    static let template = MCPTool(
+        name: "translation_template",
+        title: "Get a fill-in template for what is missing",
+        description: """
+            Returns a fill-in payload for every untranslated key, in the shape the target \
+            language requires: a plural key comes back with exactly the categories that \
+            language uses — four for Russian, one for Japanese — and an identifier key comes \
+            back with the source string and the developer's comment as context. Replace every \
+            "TODO" and pass the result to add_translations, which will reject it if a format \
+            specifier or a plural category went missing. Prefer this over composing a payload \
+            from check_catalogs by hand; it is the same template the CLI writes for human \
+            translators. One payload per catalog and language. Reads only; writes nothing.
+            """,
+        properties: [
+            "projectRoot": Schema.projectRoot,
+            "languages": Schema.stringArray("Language codes to fill in. Defaults to every non-source language."),
+            "catalogs": Schema.stringArray("Specific .xcstrings paths. Defaults to all of them."),
+        ],
+        required: ["projectRoot"],
+        readOnly: true,
+        destructive: false
+    ) { arguments in
+        let workspace = try workspace(arguments)
+        let command = CheckCommand(
+            workspace: workspace,
+            options: .init(languages: strings(arguments, "languages"))
+        )
+        let catalogs = strings(arguments, "catalogs")
+        let report = try command.run(catalogPaths: catalogs.isEmpty ? nil : catalogs)
+        let templates = command.templates(for: report)
+
+        guard !templates.isEmpty else {
+            return ToolResult(
+                text: "Nothing is missing; there is no work to hand out.",
+                structured: .object(["templates": .array([])])
+            )
+        }
+        let summary = templates
+            .map { "\($0.catalog) [\($0.language)]: \($0.keys.count) key(s) to fill in" }
+            .joined(separator: "\n")
+        return ToolResult(
+            text: summary,
+            structured: .object(["templates": .array(templates.map(\.document))])
+        )
     }
 
     static let xclocCheck = MCPTool(

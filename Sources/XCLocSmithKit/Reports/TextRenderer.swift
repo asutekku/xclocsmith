@@ -118,6 +118,17 @@ public struct TextRenderer {
                 }
             }
 
+            if !catalog.sentenceKeys.isEmpty {
+                let atRisk = catalog.sentenceKeys.reduce(0) { $0 + $1.translationsAtRisk }
+                lines.append("")
+                lines.append("  note  keys that are English sentences (\(catalog.sentenceKeys.count)) — "
+                    + "\(atRisk) translation(s) would be orphaned by rewording them:")
+                for sentence in catalog.sentenceKeys.prefix(maximumListLength) {
+                    lines.append("    - \(sentence.translationsAtRisk) translation(s): \"\(escaped(sentence.key))\"")
+                }
+                lines.append("    The key is the English, so an edit is a rename. Use an identifier key.")
+            }
+
             let breaking = catalog.caseDuplicates.filter(\.breaksSymbolGeneration)
             if !breaking.isEmpty {
                 lines.append("")
